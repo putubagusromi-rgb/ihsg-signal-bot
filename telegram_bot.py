@@ -503,7 +503,7 @@ def handle_telegram_command(command_text: str, chat_id: str):
             "• <code>/insider [KODE]</code> — Radar Aksi Korporasi &amp; Keterbukaan Info\n"
             "• <code>/undervalued [KODE]</code> — Cek Saham Murah / Screener Lintas Sektor\n"
             "• <code>/dividen</code> — Radar Saham dengan Dividend Yield Tertinggi\n"
-            "• <code>/daily</code> — Ringkasan harian IHSG &amp; Watchlist pilihan\n\n"
+            "• <code>/daily</code> — Ringkasan harian IHSG &amp; Radar Hedge Fund\n\n"
             "💡 <i>Tip: Anda bisa klik tombol interaktif di bawah pesan tanpa perlu ketik ulang!</i>"
         )
         send_long_telegram_message(help_msg, chat_id)
@@ -696,9 +696,11 @@ def handle_telegram_command(command_text: str, chat_id: str):
         send_long_telegram_message("\n".join(lines), chat_id)
 
     elif cmd in ["/daily"]:
-        send_telegram_message("⏳ <i>Menyiapkan laporan harian pasar...</i>", chat_id)
+        send_telegram_message("⏳ <i>Menyiapkan laporan harian pasar &amp; radar Hedge Fund...</i>", chat_id)
         ihsg = analyze_ihsg()
         send_long_telegram_message(format_ihsg_message(ihsg), chat_id)
+        hedge_picks = scan_hedgefund_picks(limit=5)
+        send_long_telegram_message(format_hedgefund_scan_message(hedge_picks), chat_id)
         stocks = scan_whale_watchlist(LQ45_WATCHLIST)
         send_long_telegram_message(format_whale_scan_message(stocks, title_tag="LQ45", limit=5), chat_id)
 
@@ -762,12 +764,14 @@ def scheduled_worker():
             if now_str == SCHEDULED_ALERTS.get("morning_brief", "08:30") and already_sent["morning"] != today_str:
                 if TELEGRAM_CHAT_ID:
                     ihsg = analyze_ihsg()
+                    hedge_picks = scan_hedgefund_picks(limit=5)
                     stocks = scan_whale_watchlist(LQ45_WATCHLIST)
                     msg = (
-                        "🌅 <b>MORNING MARKET RADAR &amp; WHALE PICKS (08:30 WIB)</b>\n"
+                        "🌅 <b>MORNING MARKET RADAR &amp; HEDGE FUND PICKS (08:30 WIB)</b>\n"
                         "<i>30 Menit Menuju Pembukaan Sesi 1 IHSG!</i>\n\n"
                         + format_ihsg_message(ihsg) + "\n\n"
-                        + format_whale_scan_message(stocks, title_tag="LQ45 MORNING", limit=5)
+                        + format_hedgefund_scan_message(hedge_picks) + "\n\n"
+                        + format_whale_scan_message(stocks, title_tag="LQ45 WHALE MOMENTUM", limit=5)
                     )
                     send_long_telegram_message(msg)
                     already_sent["morning"] = today_str
@@ -776,11 +780,13 @@ def scheduled_worker():
             if now_str == SCHEDULED_ALERTS.get("market_closing", "16:15") and already_sent["closing"] != today_str:
                 if TELEGRAM_CHAT_ID:
                     ihsg = analyze_ihsg()
+                    hedge_picks = scan_hedgefund_picks(limit=5)
                     stocks = scan_whale_watchlist(LQ45_WATCHLIST)
                     msg = (
-                        "🌇 <b>POST-MARKET CLOSING REPORT &amp; WHALE PICKS (16:15 WIB)</b>\n\n"
+                        "🌇 <b>POST-MARKET CLOSING &amp; HEDGE FUND REPORT (16:15 WIB)</b>\n\n"
                         + format_ihsg_message(ihsg) + "\n\n"
-                        + format_whale_scan_message(stocks, title_tag="LQ45 CLOSING", limit=5)
+                        + format_hedgefund_scan_message(hedge_picks) + "\n\n"
+                        + format_whale_scan_message(stocks, title_tag="LQ45 CLOSING WHALE", limit=5)
                     )
                     send_long_telegram_message(msg)
                     already_sent["closing"] = today_str
