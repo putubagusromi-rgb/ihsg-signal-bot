@@ -35,12 +35,36 @@ from advanced_tools import (
     calculate_position_sizing,
     scan_sector_rotation
 )
+from ai_copilot import answer_market_query, extract_ticker_from_query
 
 esc = html.escape
 _command_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="cmd")
 
 
-def send_telegram_message(text: str, chat_id: str = None, parse_mode: str = "HTML") -> bool:
+def make_stock_inline_keyboard(ticker: str) -> dict:
+    """
+    Membuat tombol interaktif Telegram sekali klik untuk saham tertentu.
+    """
+    t = ticker.replace(".JK", "").strip().upper()
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "📊 Buka Chart", "callback_data": f"chart:{t}"},
+                {"text": "🌊 Order Flow", "callback_data": f"flow:{t}"}
+            ],
+            [
+                {"text": "💎 Cek Valuasi", "callback_data": f"val:{t}"},
+                {"text": "🕵️ Aksi Korporasi", "callback_data": f"insider:{t}"}
+            ],
+            [
+                {"text": "🧮 Hitung Lot (10jt)", "callback_data": f"calc:{t}"},
+                {"text": "🤖 Tanya AI Copilot", "callback_data": f"tanya:{t}"}
+            ]
+        ]
+    }
+
+
+def send_telegram_message(text: str, chat_id: str = None, parse_mode: str = "HTML", reply_markup: dict = None) -> bool:
     token = TELEGRAM_BOT_TOKEN
     target_id = chat_id or TELEGRAM_CHAT_ID
 
@@ -54,6 +78,8 @@ def send_telegram_message(text: str, chat_id: str = None, parse_mode: str = "HTM
         "parse_mode": parse_mode,
         "disable_web_page_preview": True
     }
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
 
     try:
         resp = requests.post(url, json=payload, timeout=15)
@@ -89,10 +115,10 @@ def send_telegram_photo(photo_buf: io.BytesIO, caption: str = "", chat_id: str =
         return False
 
 
-def send_long_telegram_message(text: str, chat_id: str = None, parse_mode: str = "HTML") -> bool:
+def send_long_telegram_message(text: str, chat_id: str = None, parse_mode: str = "HTML", reply_markup: dict = None) -> bool:
     MAX_LEN = 4000
     if len(text) <= MAX_LEN:
-        return send_telegram_message(text, chat_id, parse_mode)
+        return send_telegram_message(text, chat_id, parse_mode, reply_markup=reply_markup)
 
     chunks = []
     while text:
@@ -106,10 +132,25 @@ def send_long_telegram_message(text: str, chat_id: str = None, parse_mode: str =
         text = text[split_idx:].lstrip("\n")
 
     success = True
-    for chunk in chunks:
-        if not send_telegram_message(chunk, chat_id, parse_mode):
+    for i, chunk in enumerate(chunks):
+        rm = reply_markup if i == len(chunks) - 1 else None
+        if not send_telegram_message(chunk, chat_id, parse_mode, reply_markup=rm):
             success = False
     return success
+
+
+def answer_telegram_callback(callback_query_id: str):
+    """
+    Menjawab callback query agar ikon loading di tombol Telegram berhenti.
+    """
+    token = TELEGRAM_BOT_TOKEN
+    if not token:
+        return
+    url = f"https://api.telegram.org/bot{token}/answerCallbackQuery"
+    try:
+        requests.post(url, json={"callback_query_id": callback_query_id}, timeout=10)
+    except Exception:
+        pass
 
 
 def format_ihsg_message(data: dict) -> str:
@@ -320,6 +361,86 @@ def format_whale_scan_message(stocks: list, title_tag: str = "LQ45", limit: int 
     return "\n".join(lines)
 
 
+def handle_telegram_callback(callback_query: dict):
+    """
+    Menangani aksi klik tombol interaktif Telegram inline keyboard.
+    """
+    cb_id = callback_query.get("id")
+    if cb_id:
+        answer_telegram_callback(cb_id)
+
+    data = callback_query.get("data", "")
+    msg = callback_query.get("message", {})
+    chat_id = str(msg.get("chat", {}).get("id"))
+    if not chat_id or not data:
+        return
+
+    parts = data.split(":")
+    if len(parts) < 2:
+        return
+
+    action, ticker = parts[0], parts[1].upper()
+
+    if action == "chart":
+        send_telegram_message(f"🎨 <i>Menggambar visual candlestick chart &amp; TP/SL #{esc(ticker)}...</i>", chat_id)
+        buf = generate_stock_chart(ticker)
+        if buf is None:
+            send_telegram_message(f"❌ Gagal membuat chart untuk #{esc(ticker)}.", chat_id)
+            return
+        caption = f"📊 <b>Technical Candlestick Chart: #{esc(ticker)}</b>\n<i>Garis Biru: EMA20 | Kuning: EMA50 | Cyan: TP1 | Merah: Stop Loss</i>"
+        send_telegram_photo(buf, caption=caption, chat_id=chat_id)
+
+    elif action == "flow":
+        send_telegram_message(f"⏳ <i>Membaca Order Flow &amp; Tiket Transaksi #{esc(ticker)}...</i>", chat_id)
+        data_flow = analyze_single_stock(ticker)
+        send_long_telegram_message(format_flow_message(data_flow), chat_id)
+
+    elif action == "val":
+        send_telegram_message(f"⏳ <i>Mengecek valuasi fundamental #{esc(ticker)}...</i>", chat_id)
+        data_val = get_single_stock_valuation(ticker)
+        if "error" in data_val:
+            send_telegram_message(f"❌ {data_val['error']}", chat_id)
+            return
+        msg_val = (
+            f"💎 <b>DIAGNOSIS VALUASI: #{data_val['ticker']}</b>\n"
+            f"🏢 <i>Sektor: {data_val['sector']}</i>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"💵 <b>Harga Sekarang:</b> <code>Rp{int(data_val['price']):,}</code>\n"
+            f"📊 <b>PBV (Price to Book):</b> <code>{data_val['pbv']}x</code>\n"
+            f"📈 <b>PER (Price to Earnings):</b> <code>{data_val['per']}x</code>\n"
+            f"💰 <b>Dividend Yield:</b> <code>{data_val['div_yield']}%</code>\n"
+            f"🏛️ <b>Profitabilitas (ROE):</b> <code>{data_val['roe']}%</code>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"🎯 <b>Status Valuasi:</b>\n👉 <b>{data_val['status']}</b>"
+        )
+        send_telegram_message(msg_val, chat_id)
+
+    elif action == "insider":
+        send_telegram_message(f"⏳ <i>Memindai aksi korporasi &amp; keterbukaan info #{esc(ticker)}...</i>", chat_id)
+        actions = fetch_insider_corporate_actions(ticker=ticker, limit=4)
+        lines = [
+            f"🕵️‍♂️ <b>RADAR INSIDER &amp; AKSI KORPORASI (#{esc(ticker)})</b>",
+            "━━━━━━━━━━━━━━━━━━━"
+        ]
+        if not actions:
+            lines.append("<i>Tidak ditemukan aksi korporasi khusus baru-baru ini.</i>")
+        else:
+            for a in actions:
+                lines.append(f"{a['badge']} <b>{a['category']}</b>\n👉 {a['title']} <i>({a['source']})</i>\n")
+        lines.append("━━━━━━━━━━━━━━━━━━━")
+        send_long_telegram_message("\n".join(lines), chat_id)
+
+    elif action == "calc":
+        send_telegram_message(f"⏳ <i>Menghitung alokasi aman #{esc(ticker)} untuk modal standar Rp10 Juta...</i>", chat_id)
+        res_calc = calculate_position_sizing(ticker, "10jt")
+        send_long_telegram_message(format_position_sizing_message(res_calc), chat_id)
+
+    elif action == "tanya":
+        send_telegram_message(f"🤖 <i>AI Copilot sedang menyusun diagnosa lengkap #{esc(ticker)}...</i>", chat_id)
+        resp_ai = answer_market_query(f"apakah aman beli {ticker} sekarang?")
+        send_long_telegram_message(resp_ai, chat_id)
+
+
 def handle_telegram_command(command_text: str, chat_id: str):
     parts = command_text.strip().split()
     if not parts:
@@ -331,22 +452,44 @@ def handle_telegram_command(command_text: str, chat_id: str):
         help_msg = (
             "🤖 <b>IHSG &amp; WHALE BANDARMOLOGY SIGNAL BOT</b>\n\n"
             "Bot ini memantau IHSG dan mendeteksi saham yang diakumulasi Whale / Smart Money "
-            "dari seluruh <b>958 saham BEI</b> via Yahoo Finance API &amp; Radar Berita.\n\n"
+            "dari seluruh <b>958 saham BEI</b> dilengkapi dengan <b>AI Market Copilot</b>.\n\n"
             "📌 <b>Daftar Perintah Screening &amp; Sinyal:</b>\n"
-            "• <code>/ihsg</code> — Sinyal &amp; analisis kondisi pasar IHSG terkini\n"
-            "• <code>/whale</code> atau <code>/lq45</code> — Screening 45 saham terlikuid (LQ45)\n"
-            "• <code>/scan KODE</code> — Analisis saham + Sentimen Berita + Trading Plan\n"
-            "• <code>/chart KODE</code> — Grafik Candlestick teknikal + MA20/50 + Garis TP/SL (Kirim Gambar)\n"
-            "• <code>/calc KODE MODAL</code> — Hitung lot aman &amp; risiko (Contoh: <code>/calc BBCA 10jt</code>)\n"
+            "• <code>/tanya [PERTANYAAN]</code> — Tanya jawab pasar &amp; saham bebas ke AI Copilot\n"
+            "• <code>/scan KODE</code> — Analisis saham + Tombol Interaktif Pintar\n"
+            "• <code>/chart KODE</code> — Grafik Candlestick teknikal + MA20/50 + TP/SL\n"
+            "• <code>/calc KODE MODAL</code> — Hitung lot aman &amp; risiko (Misal: <code>/calc BBCA 10jt</code>)\n"
             "• <code>/sektor</code> — Radar rotasi arus dana antar sektor bursa\n"
             "• <code>/flow KODE</code> — Analisis Order Flow murni + Profil Order Jumbo Bandar\n"
-            "• <code>/insider [KODE]</code> — Radar Aksi Korporasi &amp; Keterbukaan Info (Bisa per saham)\n"
+            "• <code>/ihsg</code> — Sinyal &amp; analisis kondisi pasar IHSG terkini\n"
+            "• <code>/whale</code> atau <code>/lq45</code> — Screening 45 saham terlikuid (LQ45)\n"
+            "• <code>/insider [KODE]</code> — Radar Aksi Korporasi &amp; Keterbukaan Info\n"
             "• <code>/undervalued [KODE]</code> — Cek Saham Murah / Screener Lintas Sektor\n"
             "• <code>/dividen</code> — Radar Saham dengan Dividend Yield Tertinggi\n"
             "• <code>/daily</code> — Ringkasan harian IHSG &amp; Watchlist pilihan\n\n"
-            "💡 <i>Selamat bertrading &amp; utamakan Money Management!</i>"
+            "💡 <i>Tip: Sekarang Anda bisa klik tombol interaktif di bawah pesan tanpa perlu ketik ulang!</i>"
         )
         send_long_telegram_message(help_msg, chat_id)
+
+    elif cmd in ["/tanya", "/ask", "/ai"]:
+        if len(parts) < 2:
+            send_telegram_message(
+                "🤖 <b>AI MARKET COPILOT</b>\n\n"
+                "Ketik pertanyaan Anda setelah <code>/tanya</code>.\n"
+                "Contoh:\n"
+                "• <code>/tanya apakah aman beli BBRI sekarang?</code>\n"
+                "• <code>/tanya bagaimana prospek dividen BBCA?</code>\n"
+                "• <code>/tanya sektor apa yang paling menarik hari ini?</code>\n"
+                "• <code>/tanya rekomendasi saham swing trade</code>",
+                chat_id
+            )
+            return
+
+        user_query = " ".join(parts[1:])
+        send_telegram_message("🤖 <i>AI Copilot sedang menganalisis pasar &amp; menyusun diagnosa...</i>", chat_id)
+        ans = answer_market_query(user_query)
+        ticker_found = extract_ticker_from_query(user_query)
+        kb = make_stock_inline_keyboard(ticker_found) if ticker_found else None
+        send_long_telegram_message(ans, chat_id, reply_markup=kb)
 
     elif cmd in ["/ihsg"]:
         send_telegram_message("⏳ <i>Sedang menganalisis data IHSG...</i>", chat_id)
@@ -378,7 +521,8 @@ def handle_telegram_command(command_text: str, chat_id: str):
         ticker = parts[1].upper()
         send_telegram_message(f"⏳ <i>Menganalisis #{esc(ticker)}, jejak Whale &amp; Bau Berita...</i>", chat_id)
         data = analyze_single_stock(ticker)
-        send_long_telegram_message(format_single_stock_message(data), chat_id)
+        kb = make_stock_inline_keyboard(ticker)
+        send_long_telegram_message(format_single_stock_message(data), chat_id, reply_markup=kb)
 
     elif cmd in ["/chart", "/grafik"]:
         if len(parts) < 2:
@@ -422,7 +566,8 @@ def handle_telegram_command(command_text: str, chat_id: str):
         ticker = parts[1].upper()
         send_telegram_message(f"⏳ <i>Membaca Order Flow &amp; Tiket Transaksi #{esc(ticker)}...</i>", chat_id)
         data = analyze_single_stock(ticker)
-        send_long_telegram_message(format_flow_message(data), chat_id)
+        kb = make_stock_inline_keyboard(ticker)
+        send_long_telegram_message(format_flow_message(data), chat_id, reply_markup=kb)
 
     elif cmd in ["/insider", "/aksi"]:
         ticker = parts[1].upper() if len(parts) > 1 else None
@@ -435,7 +580,7 @@ def handle_telegram_command(command_text: str, chat_id: str):
             "━━━━━━━━━━━━━━━━━━━"
         ]
         if not actions:
-            lines.append("<i>Tidak ditemukan aksi korporasi / keterbukaan info khusus baru-baru ini.</i>")
+            lines.append("<i>Tidak ditemukan aksi korporasi khusus baru-baru ini.</i>")
         else:
             for a in actions:
                 lines.append(f"{a['badge']} <b>{a['category']}</b>\n👉 {a['title']} <i>({a['source']})</i>\n")
@@ -462,7 +607,8 @@ def handle_telegram_command(command_text: str, chat_id: str):
                 f"━━━━━━━━━━━━━━━━━━━\n"
                 f"🎯 <b>Status Valuasi:</b>\n👉 <b>{data['status']}</b>"
             )
-            send_telegram_message(msg, chat_id)
+            kb = make_stock_inline_keyboard(ticker)
+            send_telegram_message(msg, chat_id, reply_markup=kb)
         else:
             send_telegram_message("⏳ <i>Menyaring saham 'Mercy Harga Avanza' lintas sektor...</i>", chat_id)
             stocks = scan_undervalued_stocks(LQ45_WATCHLIST, limit=5)
@@ -511,7 +657,8 @@ def handle_telegram_command(command_text: str, chat_id: str):
         if len(raw) in [4, 5] and raw.isalpha():
             send_telegram_message(f"⏳ <i>Menganalisis #{esc(raw)}...</i>", chat_id)
             data = analyze_single_stock(raw)
-            send_long_telegram_message(format_single_stock_message(data), chat_id)
+            kb = make_stock_inline_keyboard(raw)
+            send_long_telegram_message(format_single_stock_message(data), chat_id, reply_markup=kb)
 
 
 def start_bot_polling():
@@ -529,6 +676,14 @@ def start_bot_polling():
                 data = resp.json()
                 for update in data.get("result", []):
                     offset = update["update_id"] + 1
+
+                    # 1. Tangani Klik Tombol Interaktif (Callback Query)
+                    if "callback_query" in update:
+                        cb = update["callback_query"]
+                        _command_executor.submit(handle_telegram_callback, cb)
+                        continue
+
+                    # 2. Tangani Pesan Teks Perintah Biasa
                     msg = update.get("message")
                     if not msg or "text" not in msg:
                         continue
