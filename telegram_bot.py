@@ -3,6 +3,7 @@ import sys
 import time
 import requests
 import html
+import io
 from datetime import datetime
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -29,6 +30,11 @@ from insider_radar import (
     scan_high_dividend_stocks,
     get_single_stock_valuation
 )
+from advanced_tools import (
+    generate_stock_chart,
+    calculate_position_sizing,
+    scan_sector_rotation
+)
 
 esc = html.escape
 _command_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="cmd")
@@ -54,6 +60,32 @@ def send_telegram_message(text: str, chat_id: str = None, parse_mode: str = "HTM
         return resp.status_code == 200
     except Exception as e:
         print(f"[ERROR Request] {e}")
+        return False
+
+
+def send_telegram_photo(photo_buf: io.BytesIO, caption: str = "", chat_id: str = None, parse_mode: str = "HTML") -> bool:
+    token = TELEGRAM_BOT_TOKEN
+    target_id = chat_id or TELEGRAM_CHAT_ID
+
+    if not token or not target_id or photo_buf is None:
+        return False
+
+    url = f"https://api.telegram.org/bot{token}/sendPhoto"
+    data = {
+        "chat_id": target_id,
+        "caption": caption,
+        "parse_mode": parse_mode
+    }
+    photo_buf.seek(0)
+    files = {
+        "photo": ("chart.png", photo_buf, "image/png")
+    }
+
+    try:
+        resp = requests.post(url, data=data, files=files, timeout=30)
+        return resp.status_code == 200
+    except Exception as e:
+        print(f"[ERROR sendPhoto] {e}")
         return False
 
 
@@ -208,6 +240,57 @@ def format_flow_message(data: dict) -> str:
     )
 
 
+def format_position_sizing_message(data: dict) -> str:
+    if "error" in data:
+        return f"❌ <b>Gagal Menghitung Money Management:</b> {data['error']}"
+
+    return (
+        f"🧮 <b>SMART MONEY MANAGEMENT: #{data['ticker']}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"💰 <b>Total Modal Alokasi:</b> <code>Rp{int(data['capital']):,}</code>\n"
+        f"💵 <b>Harga Saham Saat Ini:</b> <code>Rp{data['price']:,}</code> (Rp{data['cost_per_lot']:,}/lot)\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"🛡️ <b>REKOMENDASI PORSI AMAN (RISK 2%):</b>\n"
+        f"• Alokasi Aman: <b>{data['recommended_lots']} Lot</b> ({data['recommended_lots'] * 100:,} lembar)\n"
+        f"• Total Modal Dipakai: <code>Rp{data['total_spent']:,}</code>\n"
+        f"• Sisa Kas Aman (Cash Buffer): <code>Rp{data['cash_remaining']:,}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"🎯 <b>SKENARIO PROFIT / LOSS:</b>\n"
+        f"• Target TP1: <code>Rp{data['tp1']:,}</code> (+{data['profit_pct']}%)\n"
+        f"  👉 Potensi Cuan: <b>+Rp{data['profit_potential']:,}</b>\n"
+        f"• Stop Loss (SL): <code>Rp{data['sl']:,}</code> ({data['loss_pct']}%)\n"
+        f"  👉 Resiko Toleransi: <b>-Rp{data['loss_potential']:,}</b>\n"
+        f"• Reward to Risk Ratio: <b>{data['rr_ratio']}x</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"💡 <i>Catatan: Jangan all-in pada 1 saham. Disiplin cut loss bila tembus SL!</i>"
+    )
+
+
+def format_sector_rotation_message(sectors: list) -> str:
+    if not sectors:
+        return "⚠️ Gagal mengambil data rotasi sektor."
+
+    lines = [
+        "🔄 <b>RADAR ROTASI SEKTOR IHSG (FUND FLOW)</b> 📊",
+        "<i>Mendeteksi ke sektor mana arus dana Big Money sedang mengalir hari ini:</i>",
+        "━━━━━━━━━━━━━━━━━━━"
+    ]
+
+    for idx, s in enumerate(sectors, 1):
+        arrow = "🟢" if s["avg_change"] > 0 else ("🔴" if s["avg_change"] < 0 else "⚪")
+        chg_sym = "+" if s["avg_change"] > 0 else ""
+        leader_sym = "+" if s["leader_pct"] > 0 else ""
+        lines.append(
+            f"{arrow} <b>{s['sector']}</b>\n"
+            f"   • Rata-rata: <b>{chg_sym}{s['avg_change']:.2f}%</b>\n"
+            f"   • Top Stock: <b>#{s['leader']}</b> ({leader_sym}{s['leader_pct']:.2f}%)\n"
+        )
+
+    lines.append("━━━━━━━━━━━━━━━━━━━")
+    lines.append("💡 <i>Ketik <code>/scan KODE</code> pada saham pemimpin sektor yang sedang naik untuk momentum swing.</i>")
+    return "\n".join(lines)
+
+
 def format_whale_scan_message(stocks: list, title_tag: str = "LQ45", limit: int = 7) -> str:
     if not stocks:
         return f"⚠️ Tidak ditemukan saham yang memenuhi kriteria akumulasi aktif di kategori {title_tag}."
@@ -249,10 +332,13 @@ def handle_telegram_command(command_text: str, chat_id: str):
             "🤖 <b>IHSG &amp; WHALE BANDARMOLOGY SIGNAL BOT</b>\n\n"
             "Bot ini memantau IHSG dan mendeteksi saham yang diakumulasi Whale / Smart Money "
             "dari seluruh <b>958 saham BEI</b> via Yahoo Finance API &amp; Radar Berita.\n\n"
-            "📌 <b>Daftar Perintah Screening:</b>\n"
+            "📌 <b>Daftar Perintah Screening &amp; Sinyal:</b>\n"
             "• <code>/ihsg</code> — Sinyal &amp; analisis kondisi pasar IHSG terkini\n"
             "• <code>/whale</code> atau <code>/lq45</code> — Screening 45 saham terlikuid (LQ45)\n"
             "• <code>/scan KODE</code> — Analisis saham + Sentimen Berita + Trading Plan\n"
+            "• <code>/chart KODE</code> — Grafik Candlestick teknikal + MA20/50 + Garis TP/SL (Kirim Gambar)\n"
+            "• <code>/calc KODE MODAL</code> — Hitung lot aman &amp; risiko (Contoh: <code>/calc BBCA 10jt</code>)\n"
+            "• <code>/sektor</code> — Radar rotasi arus dana antar sektor bursa\n"
             "• <code>/flow KODE</code> — Analisis Order Flow murni + Profil Order Jumbo Bandar\n"
             "• <code>/insider [KODE]</code> — Radar Aksi Korporasi &amp; Keterbukaan Info (Bisa per saham)\n"
             "• <code>/undervalued [KODE]</code> — Cek Saham Murah / Screener Lintas Sektor\n"
@@ -293,6 +379,40 @@ def handle_telegram_command(command_text: str, chat_id: str):
         send_telegram_message(f"⏳ <i>Menganalisis #{esc(ticker)}, jejak Whale &amp; Bau Berita...</i>", chat_id)
         data = analyze_single_stock(ticker)
         send_long_telegram_message(format_single_stock_message(data), chat_id)
+
+    elif cmd in ["/chart", "/grafik"]:
+        if len(parts) < 2:
+            send_telegram_message("⚠️ Harap sertakan kode saham. Contoh: <code>/chart BBCA</code>", chat_id)
+            return
+
+        ticker = parts[1].upper()
+        send_telegram_message(f"🎨 <i>Menggambar visual candlestick chart &amp; TP/SL #{esc(ticker)}...</i>", chat_id)
+        buf = generate_stock_chart(ticker)
+        if buf is None:
+            send_telegram_message(f"❌ Gagal membuat chart untuk #{esc(ticker)}. Pastikan kode benar.", chat_id)
+            return
+        caption = f"📊 <b>Technical Candlestick Chart: #{esc(ticker)}</b>\n<i>Garis Biru: EMA20 | Kuning: EMA50 | Cyan: TP1 | Merah: Stop Loss</i>"
+        if not send_telegram_photo(buf, caption=caption, chat_id=chat_id):
+            send_telegram_message(f"❌ Gagal mengirim gambar chart #{esc(ticker)} ke Telegram.", chat_id)
+
+    elif cmd in ["/calc", "/hitung", "/money"]:
+        if len(parts) < 3:
+            send_telegram_message(
+                "⚠️ Format salah! Gunakan: <code>/calc [KODE] [MODAL]</code>\nContoh: <code>/calc BBCA 10jt</code> atau <code>/calc BBRI 25000000</code>",
+                chat_id
+            )
+            return
+
+        ticker = parts[1].upper()
+        capital_str = parts[2]
+        send_telegram_message(f"⏳ <i>Menghitung alokasi aman lot #{esc(ticker)} untuk modal {esc(capital_str)}...</i>", chat_id)
+        res = calculate_position_sizing(ticker, capital_str)
+        send_long_telegram_message(format_position_sizing_message(res), chat_id)
+
+    elif cmd in ["/sektor", "/sector"]:
+        send_telegram_message("⏳ <i>Memindai performa dan arus rotasi sektor IHSG...</i>", chat_id)
+        sectors = scan_sector_rotation()
+        send_long_telegram_message(format_sector_rotation_message(sectors), chat_id)
 
     elif cmd in ["/flow", "/orderflow"]:
         if len(parts) < 2:
