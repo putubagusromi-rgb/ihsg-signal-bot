@@ -111,13 +111,13 @@ def format_single_stock_message(data: dict) -> str:
         reasons_text = "\n🔍 <b>Fakta Akumulasi:</b>\n" + "\n".join([f" • {r}" for r in w["entry_reasons"]])
 
     res = (
-        f"💎 <b>ANALISIS SAHAM & WHALE FLOW: #{data['ticker']}</b>\n"
+        f"💎 <b>ANALISIS SAHAM &amp; WHALE FLOW: #{data['ticker']}</b>\n"
         f"📅 <i>Tanggal: {data['date']}</i>\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
         f"💵 <b>Harga Terakhir:</b> <code>Rp{int(data['close']):,}</code> ({chg_sym}{data['pct_change']:.2f}%)\n"
         f"🏷️ <b>Sinyal:</b> {data['signal_badge']}\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
-        f"🐋 <b>BANDARMOLOGY & WHALE METRICS:</b>\n"
+        f"🐋 <b>BANDARMOLOGY &amp; WHALE METRICS:</b>\n"
         f" • Status: <b>{w['whale_status']}</b>\n"
         f" • Skor Akumulasi: <b>{w['whale_score']}/100</b>\n"
         f" • RVOL (Lonjakan Vol): <b>{w['rvol']:.2f}x</b> dari rata-rata\n"
@@ -144,7 +144,7 @@ def format_single_stock_message(data: dict) -> str:
     sent = data.get("sentiment", {})
     if sent:
         news_lines = [
-            f"\n📰 <b>BAU SENTIMEN BERITA & KATALIS:</b> {sent.get('badge', '⚪')}",
+            f"\n📰 <b>BAU SENTIMEN BERITA &amp; KATALIS:</b> {sent.get('badge', '⚪')}",
             f"<i>{sent.get('catalyst_summary', '')}</i>"
         ]
         headlines = sent.get("headlines", [])
@@ -157,6 +157,51 @@ def format_single_stock_message(data: dict) -> str:
     return res
 
 
+def format_flow_message(data: dict) -> str:
+    if "error" in data:
+        return f"❌ <b>Gagal Menganalisis Order Flow:</b> {data['error']}"
+
+    w = data["whale"]
+    lot = w.get("lot_profile", {})
+    jumbo = lot.get("jumbo_pct", 50)
+    retail = lot.get("retail_pct", 30)
+    medium = lot.get("medium_pct", 20)
+    chg_sym = "+" if data["pct_change"] >= 0 else ""
+    flow_str = f"+Rp{w['whale_flow_billion']:.1f} M" if w['whale_flow_billion'] >= 0 else f"-Rp{abs(w['whale_flow_billion']):.1f} M"
+
+    jumbo_bars = int(jumbo / 10)
+    retail_bars = int(retail / 10)
+    bar_jumbo = "█" * jumbo_bars + "░" * (10 - jumbo_bars)
+    bar_retail = "█" * retail_bars + "░" * (10 - retail_bars)
+
+    domination = "🟢 DOMINASI AKUMULASI (BUYER AGGRESSIVE)" if w['cmf'] > 0 else "🔴 DOMINASI DISTRIBUSI (SELLER AGGRESSIVE)"
+
+    return (
+        f"🌊 <b>ORDER FLOW &amp; WHALE FOOTPRINT: #{data['ticker']}</b>\n"
+        f"📅 <i>Tanggal: {data['date']} | Harga: Rp{int(data['close']):,} ({chg_sym}{data['pct_change']:.2f}%)</i>\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"⚖️ <b>TEKANAN VOLUME &amp; MONEY FLOW:</b>\n"
+        f"• Arah Arus Uang: <b>{domination}</b>\n"
+        f"• Net Whale Flow: <b>{flow_str}</b>\n"
+        f"• Chaikin Money Flow: <code>{w['cmf']:.3f}</code>\n"
+        f"• Lonjakan Vol (RVOL): <code>{w['rvol']:.2f}x</code> dari rata-rata\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"🐋 <b>PROFIL UKURAN TRANSAKSI (TICKET SIZE):</b>\n"
+        f"• 🐋 <b>Order Jumbo (Bandar/Institusi):</b> <code>{jumbo}%</code>\n"
+        f"  [{bar_jumbo}]\n"
+        f"• 🐜 <b>Order Retail (Semut/FOMO):</b> <code>{retail}%</code>\n"
+        f"  [{bar_retail}]\n"
+        f"• 📦 <b>Order Menengah:</b> <code>{medium}%</code>\n\n"
+        f"💡 <i>{lot.get('summary', '')}</i>\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"🎯 <b>MODAL BANDAR &amp; TOLOK UKUR:</b>\n"
+        f"• Est. Rata-rata Modal Bandar (VWAP): <code>Rp{int(w['whale_vwap']):,}</code>\n"
+        f"• Posisi Harga vs Modal Bandar: <b>{w['pct_from_vwap']:+.1f}%</b>\n"
+        f"• Support Kunci: <code>Rp{int(data['levels']['support_1']):,}</code>\n"
+        f"• Resistance Target: <code>Rp{int(data['levels']['resistance_1']):,}</code>\n"
+    )
+
+
 def format_whale_scan_message(stocks: list, title_tag: str = "LQ45", limit: int = 7) -> str:
     if not stocks:
         return f"⚠️ Tidak ditemukan saham yang memenuhi kriteria akumulasi aktif di kategori {title_tag}."
@@ -164,7 +209,7 @@ def format_whale_scan_message(stocks: list, title_tag: str = "LQ45", limit: int 
     top_stocks = stocks[:limit]
     lines = [
         f"🐋 <b>TOP WHALE ACCUMULATION ({title_tag})</b> 🚀",
-        "<i>Berdasarkan Volume Spike, Chaikin Money Flow & Breakout</i>",
+        "<i>Berdasarkan Volume Spike, Chaikin Money Flow &amp; Breakout</i>",
         "━━━━━━━━━━━━━━━━━━━"
     ]
 
@@ -203,7 +248,8 @@ def handle_telegram_command(command_text: str, chat_id: str):
             "• <code>/whale</code> atau <code>/lq45</code> — Screening 45 saham terlikuid (LQ45)\n"
             "• <code>/kompas100</code> — Screening 100 saham Kompas100\n"
             "• <code>/whale_all</code> — Screening <b>seluruh 958 saham BEI</b>\n"
-            "• <code>/scan KODE</code> — Analisis saham + Sentimen Berita + Profil Lot Jumbo\n"
+            "• <code>/scan KODE</code> — Analisis saham + Sentimen Berita + Trading Plan\n"
+            "• <code>/flow KODE</code> — Analisis Order Flow murni + Profil Order Jumbo Bandar\n"
             "• <code>/daily</code> — Ringkasan harian IHSG &amp; Watchlist pilihan\n\n"
             "💡 <i>Selamat bertrading &amp; utamakan Money Management!</i>"
         )
@@ -240,6 +286,16 @@ def handle_telegram_command(command_text: str, chat_id: str):
         send_telegram_message(f"⏳ <i>Menganalisis #{esc(ticker)}, jejak Whale &amp; Bau Berita...</i>", chat_id)
         data = analyze_single_stock(ticker)
         send_long_telegram_message(format_single_stock_message(data), chat_id)
+
+    elif cmd in ["/flow", "/orderflow"]:
+        if len(parts) < 2:
+            send_telegram_message("⚠️ Harap sertakan kode saham. Contoh: <code>/flow BBCA</code>", chat_id)
+            return
+
+        ticker = parts[1].upper()
+        send_telegram_message(f"⏳ <i>Membaca Order Flow &amp; Tiket Transaksi #{esc(ticker)}...</i>", chat_id)
+        data = analyze_single_stock(ticker)
+        send_long_telegram_message(format_flow_message(data), chat_id)
 
     elif cmd in ["/daily"]:
         send_telegram_message("⏳ <i>Menyiapkan laporan harian pasar...</i>", chat_id)
