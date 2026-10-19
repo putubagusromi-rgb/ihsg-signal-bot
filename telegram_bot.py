@@ -23,6 +23,12 @@ from config import (
     INDICATOR_CONFIG
 )
 from signal_engine import analyze_ihsg, analyze_single_stock, scan_whale_watchlist
+from insider_radar import (
+    fetch_insider_corporate_actions,
+    scan_undervalued_stocks,
+    scan_high_dividend_stocks,
+    get_single_stock_valuation
+)
 
 esc = html.escape
 _command_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="cmd")
@@ -246,12 +252,11 @@ def handle_telegram_command(command_text: str, chat_id: str):
             "📌 <b>Daftar Perintah Screening:</b>\n"
             "• <code>/ihsg</code> — Sinyal &amp; analisis kondisi pasar IHSG terkini\n"
             "• <code>/whale</code> atau <code>/lq45</code> — Screening 45 saham terlikuid (LQ45)\n"
-            "• <code>/kompas100</code> — Screening 100 saham Kompas100\n"
-            "• <code>/whale_all</code> — Screening <b>seluruh 958 saham BEI</b>\n"
             "• <code>/scan KODE</code> — Analisis saham + Sentimen Berita + Trading Plan\n"
             "• <code>/flow KODE</code> — Analisis Order Flow murni + Profil Order Jumbo Bandar\n"
-            "• <code>/insider</code> — Radar Keterbukaan Informasi, Merger, Akuisisi &amp; Dividen\n"
-            "• <code>/undervalued</code> — Screener Saham 'Mercy Harga Avanza' (Diskon Fundamental)\n"
+            "• <code>/insider [KODE]</code> — Radar Aksi Korporasi &amp; Keterbukaan Info (Bisa per saham)\n"
+            "• <code>/undervalued [KODE]</code> — Cek Saham Murah / Screener Lintas Sektor\n"
+            "• <code>/dividen</code> — Radar Saham dengan Dividend Yield Tertinggi\n"
             "• <code>/daily</code> — Ringkasan harian IHSG &amp; Watchlist pilihan\n\n"
             "💡 <i>Selamat bertrading &amp; utamakan Money Management!</i>"
         )
@@ -300,41 +305,78 @@ def handle_telegram_command(command_text: str, chat_id: str):
         send_long_telegram_message(format_flow_message(data), chat_id)
 
     elif cmd in ["/insider", "/aksi"]:
-        send_telegram_message("⏳ <i>Memindai radar aksi korporasi &amp; keterbukaan informasi orang dalam...</i>", chat_id)
-        from insider_radar import fetch_insider_corporate_actions
-        actions = fetch_insider_corporate_actions(limit=5)
+        ticker = parts[1].upper() if len(parts) > 1 else None
+        target_str = f"#{ticker}" if ticker else "Bursa IDX"
+        send_telegram_message(f"⏳ <i>Memindai radar aksi korporasi &amp; keterbukaan info {target_str}...</i>", chat_id)
+        actions = fetch_insider_corporate_actions(ticker=ticker, limit=5)
         lines = [
-            "🕵️‍♂️ <b>RADAR INSIDER &amp; AKSI KORPORASI IDX</b>",
-            "<i>Kabar Merger, Akuisisi, Buyback &amp; Dividen Jumbo Terkini:</i>",
+            f"🕵️‍♂️ <b>RADAR INSIDER &amp; AKSI KORPORASI ({target_str})</b>",
+            "<i>Kabar Merger, Akuisisi, Buyback &amp; Dividen Terkini:</i>",
             "━━━━━━━━━━━━━━━━━━━"
         ]
         if not actions:
-            lines.append("<i>Tidak ditemukan aksi korporasi anomali hari ini.</i>")
+            lines.append("<i>Tidak ditemukan aksi korporasi / keterbukaan info khusus baru-baru ini.</i>")
         else:
             for a in actions:
                 lines.append(f"{a['badge']} <b>{a['category']}</b>\n👉 {a['title']} <i>({a['source']})</i>\n")
         lines.append("━━━━━━━━━━━━━━━━━━━")
-        lines.append("💡 <i>Ketik <code>/scan KODE</code> untuk cek akumulasi bandar di emiten terkait.</i>")
         send_long_telegram_message("\n".join(lines), chat_id)
 
     elif cmd in ["/undervalued", "/berlian", "/murah"]:
-        send_telegram_message("⏳ <i>Menyaring saham-saham 'Mercy Harga Avanza' (PBV Murah &amp; Laba Solid)...</i>", chat_id)
-        from insider_radar import scan_undervalued_stocks
-        stocks = scan_undervalued_stocks(LQ45_WATCHLIST, limit=5)
+        if len(parts) > 1:
+            ticker = parts[1].upper()
+            send_telegram_message(f"⏳ <i>Mengecek valuasi fundamental #{ticker}...</i>", chat_id)
+            data = get_single_stock_valuation(ticker)
+            if "error" in data:
+                send_telegram_message(f"❌ {data['error']}", chat_id)
+                return
+            msg = (
+                f"💎 <b>DIAGNOSIS VALUASI: #{data['ticker']}</b>\n"
+                f"🏢 <i>Sektor: {data['sector']}</i>\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"💵 <b>Harga Sekarang:</b> <code>Rp{int(data['price']):,}</code>\n"
+                f"📊 <b>PBV (Price to Book):</b> <code>{data['pbv']}x</code>\n"
+                f"📈 <b>PER (Price to Earnings):</b> <code>{data['per']}x</code>\n"
+                f"💰 <b>Dividend Yield:</b> <code>{data['div_yield']}%</code>\n"
+                f"🏛️ <b>Profitabilitas (ROE):</b> <code>{data['roe']}%</code>\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"🎯 <b>Status Valuasi:</b>\n👉 <b>{data['status']}</b>"
+            )
+            send_telegram_message(msg, chat_id)
+        else:
+            send_telegram_message("⏳ <i>Menyaring saham 'Mercy Harga Avanza' lintas sektor...</i>", chat_id)
+            stocks = scan_undervalued_stocks(LQ45_WATCHLIST, limit=5)
+            lines = [
+                "💎 <b>DEEP VALUE SCREENER (MERCY HARGA AVANZA)</b> 🚀",
+                "<i>Saham-saham fundamental mewah dengan valuasi diskon:</i>",
+                "━━━━━━━━━━━━━━━━━━━"
+            ]
+            for idx, s in enumerate(stocks, 1):
+                lines.append(
+                    f"<b>{idx}. #{s['ticker']}</b> (<code>Rp{int(s['price']):,}</code> | Sektor: {s['sector']})\n"
+                    f"   • PBV: <b>{s['pbv']}x</b> | PER: <b>{s['per']}x</b>\n"
+                    f"   • ROE: <b>{s['roe']}%</b> | Div Yield: <b>{s['div_yield']}%</b>\n"
+                    f"   • Diskon Fundamental: <b>{s['discount_score']}/100</b>\n"
+                )
+            lines.append("━━━━━━━━━━━━━━━━━━━")
+            send_long_telegram_message("\n".join(lines), chat_id)
+
+    elif cmd in ["/dividen", "/dividend"]:
+        send_telegram_message("⏳ <i>Memindai saham-saham dengan Dividend Yield tertinggi di IDX...</i>", chat_id)
+        stocks = scan_high_dividend_stocks(LQ45_WATCHLIST, limit=5)
         lines = [
-            "💎 <b>DEEP VALUE SCREENER (MERCY HARGA AVANZA)</b> 🚀",
-            "<i>Saham-saham fundamental mewah dengan valuasi diskon:</i>",
+            "💰 <b>TOP DIVIDEND YIELD RADAR (PASIF INCOME)</b> 💵",
+            "<i>Saham pemberi bagi hasil dividen paling royal di bursa:</i>",
             "━━━━━━━━━━━━━━━━━━━"
         ]
         for idx, s in enumerate(stocks, 1):
             lines.append(
                 f"<b>{idx}. #{s['ticker']}</b> — <code>Rp{int(s['price']):,}</code>\n"
-                f"   • PBV: <b>{s['pbv']}x</b> | PER: <b>{s['per']}x</b>\n"
-                f"   • ROE: <b>{s['roe']}%</b> | Div Yield: <b>{s['div_yield']}%</b>\n"
-                f"   • Diskon Fundamental: <b>{s['discount_score']}/100</b>\n"
+                f"   • 💰 <b>Dividend Yield: {s['div_yield']}%</b>\n"
+                f"   • Sektor: {s['sector']} | PER: {s['per']}x\n"
             )
         lines.append("━━━━━━━━━━━━━━━━━━━")
-        lines.append("💡 <i>Kombinasikan dengan <code>/flow KODE</code> untuk memastikan bandar mulai masuk.</i>")
+        lines.append("💡 <i>Ketik <code>/scan KODE</code> untuk cek kapan waktu terbaik masuk sebelum cum-date.</i>")
         send_long_telegram_message("\n".join(lines), chat_id)
 
     elif cmd in ["/daily"]:
