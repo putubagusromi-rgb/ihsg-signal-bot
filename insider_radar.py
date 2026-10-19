@@ -83,13 +83,26 @@ def scan_undervalued_stocks(tickers: List[str], limit: int = 5) -> List[Dict[str
             if pbv and pbv > 0 and per and per > 0:
                 if pbv < 2.0 and per < 15:
                     discount_score = int(max(10, min(99, (2.0 - pbv) * 35 + (15 - per) * 2)))
+
+                    # Normalisasi Dividend Yield
+                    formatted_div = 0.0
+                    if div_yield:
+                        formatted_div = round(div_yield if div_yield <= 100 else div_yield / 100, 2)
+                        if formatted_div < 1.0 and formatted_div > 0:
+                            formatted_div = round(formatted_div * 100, 2)
+
+                    # Normalisasi ROE
+                    formatted_roe = 0.0
+                    if roe:
+                        formatted_roe = round(roe * 100 if roe < 1.0 else roe, 1)
+
                     results.append({
                         "ticker": sym.replace(".JK", ""),
                         "price": current_price,
                         "pbv": round(pbv, 2),
                         "per": round(per, 2),
-                        "div_yield": round(div_yield * 100, 2) if div_yield else 0.0,
-                        "roe": round(roe * 100, 1) if roe else 0.0,
+                        "div_yield": formatted_div,
+                        "roe": formatted_roe,
                         "discount_score": discount_score
                     })
         except Exception:
