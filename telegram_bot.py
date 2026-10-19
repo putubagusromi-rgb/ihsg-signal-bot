@@ -36,6 +36,7 @@ from advanced_tools import (
     scan_sector_rotation
 )
 from ai_copilot import answer_market_query, extract_ticker_from_query
+from hedgefund_radar import analyze_hedgefund_wyckoff, scan_hedgefund_picks
 
 esc = html.escape
 _command_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="cmd")
@@ -53,12 +54,12 @@ def make_stock_inline_keyboard(ticker: str) -> dict:
                 {"text": "🌊 Order Flow", "callback_data": f"flow:{t}"}
             ],
             [
-                {"text": "💎 Cek Valuasi", "callback_data": f"val:{t}"},
-                {"text": "🕵️ Aksi Korporasi", "callback_data": f"insider:{t}"}
+                {"text": "🏛️ Hedge Fund", "callback_data": f"hedge:{t}"},
+                {"text": "💎 Cek Valuasi", "callback_data": f"val:{t}"}
             ],
             [
                 {"text": "🧮 Hitung Lot (10jt)", "callback_data": f"calc:{t}"},
-                {"text": "🤖 Tanya AI Copilot", "callback_data": f"tanya:{t}"}
+                {"text": "🤖 Tanya AI", "callback_data": f"tanya:{t}"}
             ]
         ]
     }
@@ -236,6 +237,52 @@ def format_single_stock_message(data: dict) -> str:
     return res
 
 
+def format_hedgefund_message(data: dict) -> str:
+    if "error" in data:
+        return f"❌ {data['error']}"
+
+    return (
+        f"🏛️ <b>HEDGE FUND &amp; WYCKOFF RADAR: #{data['ticker']}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"🎯 <b>Status Fase Bandar:</b>\n"
+        f"{data['phase_badge']}\n"
+        f"<i>{data['phase_desc']}</i>\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"💵 <b>Harga Saham Saat Ini:</b> <code>Rp{data['price']:,}</code>\n"
+        f"🐋 <b>Harga Modal Bandar (VWAP):</b> <code>Rp{data['vwap_20']:,}</code> ({data['pct_from_vwap']:+.1f}% vs harga)\n"
+        f"🌊 <b>Arus Akumulasi CMF (10 Hari):</b> <code>{data['cmf_10']:+.3f}</code>\n"
+        f"⚡ <b>Lonjakan Volume (RVOL):</b> <code>{data['rvol']:.2f}x</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"📐 <b>LEVEL KUNCI HEDGE FUND:</b>\n"
+        f"• Area Support Kunci: <code>Rp{data['support_20']:,}</code>\n"
+        f"• Target Profit (Mark-up): <code>Rp{data['tp_target']:,}</code>\n"
+        f"• Stop Loss Proteksi: <code>Rp{data['spring_low']:,}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"💡 <b>Rekomendasi Aksi Hedge Fund:</b>\n"
+        f"👉 <b>{data['recommendation']}</b>"
+    )
+
+
+def format_hedgefund_scan_message(picks: list) -> str:
+    if not picks:
+        return "⚠️ Belum ada saham yang masuk kriteria Spring Shakeout atau Silent Absorption hari ini."
+
+    lines = [
+        "🏛️ <b>TOP HEDGE FUND &amp; WYCKOFF PICKS (LQ45)</b> 🚀",
+        "<i>Mendeteksi saham yang sedang diakumulasi diam-diam atau baru saja membuang penumpang:</i>",
+        "━━━━━━━━━━━━━━━━━━━"
+    ]
+    for idx, p in enumerate(picks, 1):
+        lines.append(
+            f"<b>{idx}. #{p['ticker']}</b> (<code>Rp{p['price']:,}</code> | Modal Bandar: <code>Rp{p['vwap_20']:,}</code>)\n"
+            f"   • Fase: {p['phase_badge']}\n"
+            f"   • Target TP: <code>Rp{p['tp_target']:,}</code> | Stop Loss: <code>Rp{p['spring_low']:,}</code>\n"
+        )
+    lines.append("━━━━━━━━━━━━━━━━━━━")
+    lines.append("💡 <i>Ketik <code>/hedge KODE</code> (misal: <code>/hedge ASII</code>) untuk analisis mendalam.</i>")
+    return "\n".join(lines)
+
+
 def format_flow_message(data: dict) -> str:
     if "error" in data:
         return f"❌ <b>Gagal Menganalisis Order Flow:</b> {data['error']}"
@@ -395,6 +442,11 @@ def handle_telegram_callback(callback_query: dict):
         data_flow = analyze_single_stock(ticker)
         send_long_telegram_message(format_flow_message(data_flow), chat_id)
 
+    elif action == "hedge":
+        send_telegram_message(f"🏛️ <i>Mendiagnosis fase Wyckoff &amp; Hedge Fund footprint #{esc(ticker)}...</i>", chat_id)
+        data_hedge = analyze_hedgefund_wyckoff(ticker)
+        send_long_telegram_message(format_hedgefund_message(data_hedge), chat_id)
+
     elif action == "val":
         send_telegram_message(f"⏳ <i>Mengecek valuasi fundamental #{esc(ticker)}...</i>", chat_id)
         data_val = get_single_stock_valuation(ticker)
@@ -414,21 +466,6 @@ def handle_telegram_callback(callback_query: dict):
             f"🎯 <b>Status Valuasi:</b>\n👉 <b>{data_val['status']}</b>"
         )
         send_telegram_message(msg_val, chat_id)
-
-    elif action == "insider":
-        send_telegram_message(f"⏳ <i>Memindai aksi korporasi &amp; keterbukaan info #{esc(ticker)}...</i>", chat_id)
-        actions = fetch_insider_corporate_actions(ticker=ticker, limit=4)
-        lines = [
-            f"🕵️‍♂️ <b>RADAR INSIDER &amp; AKSI KORPORASI (#{esc(ticker)})</b>",
-            "━━━━━━━━━━━━━━━━━━━"
-        ]
-        if not actions:
-            lines.append("<i>Tidak ditemukan aksi korporasi khusus baru-baru ini.</i>")
-        else:
-            for a in actions:
-                lines.append(f"{a['badge']} <b>{a['category']}</b>\n👉 {a['title']} <i>({a['source']})</i>\n")
-        lines.append("━━━━━━━━━━━━━━━━━━━")
-        send_long_telegram_message("\n".join(lines), chat_id)
 
     elif action == "calc":
         send_telegram_message(f"⏳ <i>Menghitung alokasi aman #{esc(ticker)} untuk modal standar Rp10 Juta...</i>", chat_id)
@@ -452,8 +489,9 @@ def handle_telegram_command(command_text: str, chat_id: str):
         help_msg = (
             "🤖 <b>IHSG &amp; WHALE BANDARMOLOGY SIGNAL BOT</b>\n\n"
             "Bot ini memantau IHSG dan mendeteksi saham yang diakumulasi Whale / Smart Money "
-            "dari seluruh <b>958 saham BEI</b> dilengkapi dengan <b>AI Market Copilot</b>.\n\n"
+            "menggunakan metodologi kuantitatif <b>Hedge Fund &amp; Wyckoff</b>.\n\n"
             "📌 <b>Daftar Perintah Screening &amp; Sinyal:</b>\n"
+            "• <code>/hedge [KODE]</code> — Radar Akumulasi Diam-diam &amp; Spring Shakeout Ala Hedge Fund\n"
             "• <code>/tanya [PERTANYAAN]</code> — Tanya jawab pasar &amp; saham bebas ke AI Copilot\n"
             "• <code>/scan KODE</code> — Analisis saham + Tombol Interaktif Pintar\n"
             "• <code>/chart KODE</code> — Grafik Candlestick teknikal + MA20/50 + TP/SL\n"
@@ -466,9 +504,21 @@ def handle_telegram_command(command_text: str, chat_id: str):
             "• <code>/undervalued [KODE]</code> — Cek Saham Murah / Screener Lintas Sektor\n"
             "• <code>/dividen</code> — Radar Saham dengan Dividend Yield Tertinggi\n"
             "• <code>/daily</code> — Ringkasan harian IHSG &amp; Watchlist pilihan\n\n"
-            "💡 <i>Tip: Sekarang Anda bisa klik tombol interaktif di bawah pesan tanpa perlu ketik ulang!</i>"
+            "💡 <i>Tip: Anda bisa klik tombol interaktif di bawah pesan tanpa perlu ketik ulang!</i>"
         )
         send_long_telegram_message(help_msg, chat_id)
+
+    elif cmd in ["/hedge", "/hedgefund", "/wyckoff"]:
+        if len(parts) > 1:
+            ticker = parts[1].upper()
+            send_telegram_message(f"🏛️ <i>Mendiagnosis jejak Hedge Fund &amp; fase Wyckoff #{esc(ticker)}...</i>", chat_id)
+            data_hedge = analyze_hedgefund_wyckoff(ticker)
+            kb = make_stock_inline_keyboard(ticker)
+            send_long_telegram_message(format_hedgefund_message(data_hedge), chat_id, reply_markup=kb)
+        else:
+            send_telegram_message("🏛️ <i>Memindai saham LQ45 untuk fase Silent Accumulation &amp; Spring Shakeout...</i>", chat_id)
+            picks = scan_hedgefund_picks(limit=6)
+            send_long_telegram_message(format_hedgefund_scan_message(picks), chat_id)
 
     elif cmd in ["/tanya", "/ask", "/ai"]:
         if len(parts) < 2:
