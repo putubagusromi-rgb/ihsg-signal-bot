@@ -37,7 +37,7 @@ from advanced_tools import (
 )
 from ai_copilot import answer_market_query, extract_ticker_from_query
 from hedgefund_radar import analyze_hedgefund_wyckoff, scan_hedgefund_picks
-from whale_radar import analyze_whale_footprint, scan_top_whale_accumulations
+from whale_radar import analyze_whale_footprint, scan_top_whale_accumulations, get_whale_tier_list
 
 esc = html.escape
 _command_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="cmd")
@@ -438,6 +438,67 @@ def format_top_whale_scan_message(stocks: list, title_tag: str = "LQ45") -> str:
     return "\n".join(lines)
 
 
+def format_whale_tier_list_message(tiers: dict) -> str:
+    tier_s = tiers.get("tier_s", [])
+    tier_a = tiers.get("tier_a", [])
+    tier_b = tiers.get("tier_b", [])
+
+    lines = [
+        "🏆 <b>TIER LIST AKUMULASI WHALE (LQ45)</b> 🐋",
+        "<i>Klasifikasi saham berdasarkan kekuatan akumulasi Big Money &amp; diskon modal:</i>",
+        "━━━━━━━━━━━━━━━━━━━"
+    ]
+
+    # TIER S
+    lines.append("👑 <b>TIER S — GOD TIER (Monster Akumulasi &amp; High Conviction)</b>")
+    lines.append("<i>Saham dengan skor tertinggi (≥90) &amp; akumulasi institusi masif:</i>")
+    if not tier_s:
+        lines.append("<i>Belum ada saham yang mencapai kualifikasi Tier S hari ini.</i>\n")
+    else:
+        for idx, s in enumerate(tier_s, 1):
+            disc_str = f"💎 <b>Diskon {abs(s['pct_diff_vwap20']):.1f}%</b>" if s['pct_diff_vwap20'] < -1.5 else "🎯 Modal Seimbang"
+            lines.append(
+                f"<b>{idx}. #{s['ticker']}</b> — <code>Rp{int(s['close']):,}</code>\n"
+                f"   • Skor Whale: <b>{s['whale_score']}/100</b> ({s['status']})\n"
+                f"   • Posisi: {disc_str} (Modal Whale: <code>Rp{int(s['vwap_20d']):,}</code>)\n"
+                f"   • Target TP: <code>Rp{int(s['tp1']):,}</code> | Stop Loss: <code>Rp{int(s['sl']):,}</code>\n"
+            )
+
+    # TIER A
+    lines.append("💎 <b>TIER A — HIGH CONVICTION (Akumulasi Kuat &amp; Siap Mark-Up)</b>")
+    lines.append("<i>Saham dengan akumulasi solid (skor 80–89) &amp; penyerapan stabil:</i>")
+    if not tier_a:
+        lines.append("<i>Belum ada saham yang masuk Tier A hari ini.</i>\n")
+    else:
+        for idx, s in enumerate(tier_a, 1):
+            disc_str = f"💎 <b>Diskon {abs(s['pct_diff_vwap20']):.1f}%</b>" if s['pct_diff_vwap20'] < -1.5 else "🎯 Modal Seimbang"
+            lines.append(
+                f"<b>{idx}. #{s['ticker']}</b> — <code>Rp{int(s['close']):,}</code>\n"
+                f"   • Skor Whale: <b>{s['whale_score']}/100</b> ({s['status']})\n"
+                f"   • Posisi: {disc_str} (Modal Whale: <code>Rp{int(s['vwap_20d']):,}</code>)\n"
+                f"   • Target TP: <code>Rp{int(s['tp1']):,}</code> | Stop Loss: <code>Rp{int(s['sl']):,}</code>\n"
+            )
+
+    # TIER B
+    lines.append("⚡ <b>TIER B — EARLY ACCUMULATION (Fase Penyerapan Awal)</b>")
+    lines.append("<i>Saham tahap awal akumulasi (skor 70–79) yang sedang menguji support:</i>")
+    if not tier_b:
+        lines.append("<i>Belum ada saham yang masuk Tier B hari ini.</i>\n")
+    else:
+        for idx, s in enumerate(tier_b[:6], 1):
+            disc_str = f"💎 Diskon {abs(s['pct_diff_vwap20']):.1f}%" if s['pct_diff_vwap20'] < -1.5 else "🎯 Modal Seimbang"
+            lines.append(
+                f"<b>{idx}. #{s['ticker']}</b> (<code>Rp{int(s['close']):,}</code>) — Skor: <b>{s['whale_score']}/100</b> | {disc_str}"
+            )
+
+    lines.append("━━━━━━━━━━━━━━━━━━━")
+    lines.append("💡 <b>Rekomendasi Trading:</b>")
+    lines.append("👉 Prioritaskan entry pada saham <b>Tier S</b> dan <b>Tier A</b> yang bertanda 💎 <i>Diskon Bandar</i> untuk Risk/Reward Ratio maksimal.")
+    lines.append("👉 Ketik <code>/whale KODE</code> (misal: <code>/whale MDKA</code>) untuk melihat diagnosa detail.")
+
+    return "\n".join(lines)
+
+
 def format_whale_scan_message(stocks: list, title_tag: str = "LQ45", limit: int = 7) -> str:
     if not stocks:
         return f"⚠️ Tidak ditemukan saham yang memenuhi kriteria akumulasi aktif di kategori {title_tag}."
@@ -556,6 +617,7 @@ def handle_telegram_command(command_text: str, chat_id: str):
             "Bot ini memantau IHSG dan mendeteksi saham yang diakumulasi Whale / Smart Money "
             "menggunakan metodologi kuantitatif <b>Hedge Fund &amp; Wyckoff</b>.\n\n"
             "📌 <b>Daftar Perintah Screening &amp; Sinyal:</b>\n"
+            "• <code>/tierlist</code> — 🏆 Tier List Saham Akumulasi Whale (Tier S, A, B)\n"
             "• <code>/whale [KODE]</code> — Radar Akumulasi &amp; Modal Bandar (Contoh: <code>/whale BBCA</code>)\n"
             "• <code>/whalelist</code> — Top Saham LQ45 yang Sedang Dikoleksi Whale Hari Ini\n"
             "• <code>/hedge [KODE]</code> — Radar Akumulasi Diam-diam &amp; Spring Shakeout Ala Hedge Fund\n"
@@ -629,6 +691,11 @@ def handle_telegram_command(command_text: str, chat_id: str):
         send_telegram_message("🐋 <i>Memindai saham LQ45 untuk mencari akumulasi Whale tertinggi...</i>", chat_id)
         top_whales = scan_top_whale_accumulations(limit=6)
         send_long_telegram_message(format_top_whale_scan_message(top_whales, title_tag="LQ45 WHALE"), chat_id)
+
+    elif cmd in ["/tier", "/tierlist", "/tier_list"]:
+        send_telegram_message("🏆 <i>Menyusun Tier List akumulasi Whale LQ45 (Tier S, A, B)...</i>", chat_id)
+        tiers = get_whale_tier_list(LQ45_WATCHLIST)
+        send_long_telegram_message(format_whale_tier_list_message(tiers), chat_id)
 
     elif cmd in ["/lq45", "/akumulasi"]:
         send_telegram_message("⏳ <i>Memindai saham LQ45 untuk deteksi akumulasi Whale...</i>", chat_id)
