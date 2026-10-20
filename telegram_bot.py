@@ -38,6 +38,7 @@ from advanced_tools import (
 from ai_copilot import answer_market_query, extract_ticker_from_query
 from hedgefund_radar import analyze_hedgefund_wyckoff, scan_hedgefund_picks
 from whale_radar import analyze_whale_footprint, scan_top_whale_accumulations, get_whale_tier_list
+from multibagger_radar import analyze_multibagger_rumor, scan_top_multibagger_picks
 
 esc = html.escape
 _command_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="cmd")
@@ -55,7 +56,7 @@ def make_stock_inline_keyboard(ticker: str) -> dict:
                 {"text": "🐋 Cek Whale", "callback_data": f"whale:{t}"}
             ],
             [
-                {"text": "🏛️ Wyckoff Fund", "callback_data": f"hedge:{t}"},
+                {"text": "🚀 Cek Rumor", "callback_data": f"rumor:{t}"},
                 {"text": "🌊 Order Flow", "callback_data": f"flow:{t}"}
             ],
             [
@@ -399,7 +400,7 @@ def format_whale_footprint_message(data: dict) -> str:
         f"💰 <b>Harga Sekarang:</b> <code>Rp{int(data['close']):,}</code>",
         "━━━━━━━━━━━━━━━━━━━",
         "📊 <b>BANDARMOLOGY FOOTPRINT METRICS:</b>",
-        f"• <b>Modal Rata-rata Whale (20D VWAP):</b> <code>Rp{int(data['vwap_20d']):,}</code>",
+        f"• <b>Modal Rata-rata Whale:</b> <code>Rp{int(data['vwap_20d']):,}</code>",
         f"• <b>Posisi Terhadap Modal Bandar:</b> {data['cost_status']}",
         f"• <b>Spike Volume / Absorpsi:</b> <b>{data['rvol']:.1f}x</b> rata-rata",
         f"• <b>Money Flow Institusi (CMF):</b> <b>{cmf_20:+.2f}</b> ({cmf_status})",
@@ -499,6 +500,73 @@ def format_whale_tier_list_message(tiers: dict) -> str:
     return "\n".join(lines)
 
 
+def format_multibagger_detail_message(data: dict) -> str:
+    if "error" in data:
+        return f"❌ <b>Error:</b> {esc(str(data['error']))}"
+
+    lines = [
+        f"🚀 <b>RADAR MULTI-BAGGER &amp; RUMOR: #{data['ticker']}</b> 🔥",
+        "<i>Deteksi Saham Potensi Ratusan Persen (Rumor Aksi Korporasi + Akumulasi Bandar)</i>",
+        "━━━━━━━━━━━━━━━━━━━",
+        f"🎯 <b>Skor Potensi Multi-Bagger: {data['mb_score']}/100</b>",
+        f"🏷️ <b>Status:</b> {data['phase_badge']}",
+        f"💵 <b>Harga Sekarang:</b> <code>Rp{int(data['close']):,}</code>",
+        "━━━━━━━━━━━━━━━━━━━",
+        "📊 <b>JEJAK FOOTPRINT WHALE:</b>",
+        f"• <b>Modal Rata-rata Whale:</b> <code>Rp{int(data['vwap_20d']):,}</code>",
+        f"• <b>Posisi Terhadap Modal:</b> {data['cost_status']}",
+        f"• <b>Lonjakan Volume (RVOL):</b> <b>{data['rvol']:.1f}x</b> dari rata-rata",
+        f"• <b>Money Flow CMF:</b> <b>{data['cmf_20']:+.2f}</b>",
+        "━━━━━━━━━━━━━━━━━━━",
+        "📰 <b>KATALIS &amp; BAU RUMOR TERDETEKSI:</b>"
+    ]
+
+    if not data.get("news"):
+        lines.append("<i>Belum ada keterbukaan informasi khusus terbaru.</i>")
+    else:
+        for n in data["news"]:
+            lines.append(f"{n['badge']} {esc(n['title'])} <i>({esc(n['source'])})</i>")
+
+    lines.extend([
+        "━━━━━━━━━━━━━━━━━━━",
+        f"📖 <b>DIAGNOSA AKSI BANDAR:</b>\n<i>{data['verdict']}</i>",
+        "",
+        f"🎯 <b>RENCANA EKSEKUSI:</b>\n<i>{data['action']}</i>\n",
+        f"• 🎯 <b>Target Mark-Up 1:</b> <code>Rp{int(data['tp1']):,}</code>",
+        f"• 🚀 <b>Target Mark-Up 2:</b> <code>Rp{int(data['tp2']):,}</code>",
+        f"• 🛑 <b>Stop Loss Ketat:</b> <code>Rp{int(data['sl']):,}</code>",
+        "━━━━━━━━━━━━━━━━━━━",
+        f"💡 <i>Tip: Masuk saat fase Akumulasi Senyap sebelum berita resmi menjadi euforia publik!</i>"
+    ])
+    return "\n".join(lines)
+
+
+def format_multibagger_scan_message(picks: list) -> str:
+    if not picks:
+        return "⚠️ Tidak ada saham yang memenuhi kriteria Multi-Bagger hari ini."
+
+    lines = [
+        "🚀 <b>TOP POTENSI MULTI-BAGGER RADAR (IHSG)</b> 🔥",
+        "<i>Saham tidur / murah dengan lonjakan volume Whale &amp; rumor aksi korporasi (ala BIPI / PANI):</i>",
+        "━━━━━━━━━━━━━━━━━━━"
+    ]
+
+    for idx, p in enumerate(picks, 1):
+        catalysts_str = ", ".join([c["keyword"] for c in p.get("catalysts", [])[:2]])
+        cat_badge = f" [Katalis: {catalysts_str}]" if catalysts_str else ""
+        lines.append(
+            f"<b>{idx}. #{p['ticker']}</b> — <code>Rp{int(p['close']):,}</code>\n"
+            f"   • Skor Potensi: <b>{p['mb_score']}/100</b> ({p['phase']})\n"
+            f"   • Modal Bandar: <code>Rp{int(p['vwap_20d']):,}</code> ({p['cost_status']})\n"
+            f"   • Vol Spike: <b>{p['rvol']:.1f}x</b>{cat_badge}\n"
+            f"   • Target TP: <code>Rp{int(p['tp1']):,}</code> | Stop Loss: <code>Rp{int(p['sl']):,}</code>\n"
+        )
+
+    lines.append("━━━━━━━━━━━━━━━━━━━")
+    lines.append("💡 <i>Ketik <code>/rumor KODE</code> (misal: <code>/rumor BIPI</code>) untuk membedah berita &amp; akumulasi bandar lengkap!</i>")
+    return "\n".join(lines)
+
+
 def format_whale_scan_message(stocks: list, title_tag: str = "LQ45", limit: int = 7) -> str:
     if not stocks:
         return f"⚠️ Tidak ditemukan saham yang memenuhi kriteria akumulasi aktif di kategori {title_tag}."
@@ -563,6 +631,12 @@ def handle_telegram_callback(callback_query: dict):
         kb = make_stock_inline_keyboard(ticker)
         send_long_telegram_message(format_whale_footprint_message(data_whale), chat_id, reply_markup=kb)
 
+    elif action == "rumor":
+        send_telegram_message(f"🚀 <i>Mendiagnosis rumor aksi korporasi &amp; potensi Multi-Bagger #{esc(ticker)}...</i>", chat_id)
+        data_mb = analyze_multibagger_rumor(ticker)
+        kb = make_stock_inline_keyboard(ticker)
+        send_long_telegram_message(format_multibagger_detail_message(data_mb), chat_id, reply_markup=kb)
+
     elif action == "flow":
         send_telegram_message(f"⏳ <i>Membaca Order Flow &amp; Tiket Transaksi #{esc(ticker)}...</i>", chat_id)
         data_flow = analyze_single_stock(ticker)
@@ -617,6 +691,9 @@ def handle_telegram_command(command_text: str, chat_id: str):
             "Bot ini memantau IHSG dan mendeteksi saham yang diakumulasi Whale / Smart Money "
             "menggunakan metodologi kuantitatif <b>Hedge Fund &amp; Wyckoff</b>.\n\n"
             "📌 <b>Daftar Perintah Screening &amp; Sinyal:</b>\n"
+            "• <code>/multibagger [KODE]</code> — 🚀 Radar Saham Potensi Ratusan Persen (Rumor + Akumulasi)\n"
+            "• <code>/rumor [KODE]</code> — Bedah Rumor Aksi Korporasi (Akuisisi, Pengendali, Konglomerat)\n"
+            "• <code>/multibagger_all</code> — Scan Saham Potensi Multibagger di 100 Saham Kompas100\n"
             "• <code>/tierlist</code> — 🏆 Tier List Saham Akumulasi Whale (Tier S, A, B)\n"
             "• <code>/whale [KODE]</code> — Radar Akumulasi &amp; Modal Bandar (Contoh: <code>/whale BBCA</code>)\n"
             "• <code>/whalelist</code> — Top Saham LQ45 yang Sedang Dikoleksi Whale Hari Ini\n"
@@ -696,6 +773,35 @@ def handle_telegram_command(command_text: str, chat_id: str):
         send_telegram_message("🏆 <i>Menyusun Tier List akumulasi Whale LQ45 (Tier S, A, B)...</i>", chat_id)
         tiers = get_whale_tier_list(LQ45_WATCHLIST)
         send_long_telegram_message(format_whale_tier_list_message(tiers), chat_id)
+
+    elif cmd in ["/rumor", "/akuisisi", "/katalis"]:
+        if len(parts) > 1:
+            ticker = parts[1].upper()
+            send_telegram_message(f"🚀 <i>Mendiagnosis rumor aksi korporasi &amp; potensi Multi-Bagger #{esc(ticker)}...</i>", chat_id)
+            data_mb = analyze_multibagger_rumor(ticker)
+            kb = make_stock_inline_keyboard(ticker)
+            send_long_telegram_message(format_multibagger_detail_message(data_mb), chat_id, reply_markup=kb)
+        else:
+            send_telegram_message("🚀 <i>Memindai saham potensi Multi-Bagger (Rumor Aksi Korporasi + Akumulasi)...</i>", chat_id)
+            picks = scan_top_multibagger_picks(limit=6)
+            send_long_telegram_message(format_multibagger_scan_message(picks), chat_id)
+
+    elif cmd in ["/multibagger", "/mb"]:
+        if len(parts) > 1:
+            ticker = parts[1].upper()
+            send_telegram_message(f"🚀 <i>Mendiagnosis rumor aksi korporasi &amp; potensi Multi-Bagger #{esc(ticker)}...</i>", chat_id)
+            data_mb = analyze_multibagger_rumor(ticker)
+            kb = make_stock_inline_keyboard(ticker)
+            send_long_telegram_message(format_multibagger_detail_message(data_mb), chat_id, reply_markup=kb)
+        else:
+            send_telegram_message("🚀 <i>Memindai saham potensi Multi-Bagger (Rumor Aksi Korporasi + Akumulasi)...</i>", chat_id)
+            picks = scan_top_multibagger_picks(limit=6)
+            send_long_telegram_message(format_multibagger_scan_message(picks), chat_id)
+
+    elif cmd in ["/multibagger_all", "/mb_all"]:
+        send_telegram_message("🚀 <i>Memindai 100 saham Kompas100 untuk mencari potensi Multi-Bagger... Mohon tunggu ~15 detik.</i>", chat_id)
+        picks = scan_top_multibagger_picks(limit=8, watchlist=KOMPAS100_WATCHLIST)
+        send_long_telegram_message(format_multibagger_scan_message(picks), chat_id)
 
     elif cmd in ["/lq45", "/akumulasi"]:
         send_telegram_message("⏳ <i>Memindai saham LQ45 untuk deteksi akumulasi Whale...</i>", chat_id)
