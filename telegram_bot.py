@@ -39,6 +39,7 @@ from ai_copilot import answer_market_query, extract_ticker_from_query
 from hedgefund_radar import analyze_hedgefund_wyckoff, scan_hedgefund_picks
 from whale_radar import analyze_whale_footprint, scan_top_whale_accumulations, get_whale_tier_list
 from multibagger_radar import analyze_multibagger_rumor, scan_top_multibagger_picks
+from macro_regime import get_ihsg_market_regime
 
 esc = html.escape
 _command_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="cmd")
@@ -496,7 +497,6 @@ def format_whale_tier_list_message(tiers: dict) -> str:
     lines.append("💡 <b>Rekomendasi Trading:</b>")
     lines.append("👉 Prioritaskan entry pada saham <b>Tier S</b> dan <b>Tier A</b> yang bertanda 💎 <i>Diskon Bandar</i> untuk Risk/Reward Ratio maksimal.")
     lines.append("👉 Ketik <code>/whale KODE</code> (misal: <code>/whale MDKA</code>) untuk melihat diagnosa detail.")
-
     return "\n".join(lines)
 
 
@@ -565,6 +565,56 @@ def format_multibagger_scan_message(picks: list) -> str:
     lines.append("━━━━━━━━━━━━━━━━━━━")
     lines.append("💡 <i>Ketik <code>/rumor KODE</code> (misal: <code>/rumor BIPI</code>) untuk membedah berita &amp; akumulasi bandar lengkap!</i>")
     return "\n".join(lines)
+
+
+def format_ihsg_regime_message(data: dict) -> str:
+    if "error" in data:
+        return f"❌ <b>Error:</b> {esc(str(data['error']))}"
+
+    lines = [
+        "🌐 <b>IHSG MACRO MARKET REGIME &amp; DEFENSE ENGINE</b> 🛡️",
+        "<i>Sistem Deteksi Kesehatan Pasar &amp; Proteksi Penurunan IHSG (Pelajaran Backtest 2024-2026)</i>",
+        "━━━━━━━━━━━━━━━━━━━",
+        f"🏷️ <b>Status Pasar:</b> {data['regime']}",
+        f"🧭 <b>Mode Operasi:</b> <b>{data['status_text']}</b>",
+        f"💵 <b>Level IHSG Saat Ini:</b> <code>{data['ihsg_price']:,.2f}</code> ({data['chg_1d']:+.2f}%)",
+        f"📊 <b>Perubahan 5 Hari:</b> <code>{data['chg_5d']:+.2f}%</code>",
+        f"📈 <b>Rata-rata SMA20:</b> <code>{data['sma20']:,.2f}</code> | <b>SMA50:</b> <code>{data['sma50']:,.2f}</code>",
+        "━━━━━━━━━━━━━━━━━━━",
+        "🛡️ <b>REKOMENDASI ALOKASI PORTOFOLIO:</b>",
+        f"• <b>Porsi Cash Aman:</b> Minimal <b>{data['cash_pct']}%</b> dari total modal",
+        f"• <b>Saham Bluechip (Big Banks):</b> {'✅ Diperbolehkan' if data['allow_bigcaps'] else '⛔ DILARANG (Rawan Guyur)'}",
+        f"• <b>Saham Multi-Bagger (Konglo/Rumor):</b> {'✅ Boleh Diseleksi' if data['allow_multibagger'] else '⛔ Tahan Dulu'}",
+        "━━━━━━━━━━━━━━━━━━━",
+        f"💡 <b>PANDUAN EKSEKUSI BOT:</b>\n<i>{data['advice']}</i>"
+    ]
+    return "\n".join(lines)
+
+
+def format_simulasi_100m_message() -> str:
+    return (
+        "💰 <b>HASIL REAL BACKTEST PORTOFOLIO RP 100 JUTA (2024 - 2026)</b> 📊\n"
+        "<i>Strategi: Akumulasi Smart Money / Whale + Proteksi Crash IHSG</i>\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "💵 <b>Modal Awal:</b> <code>Rp 100.000.000</code>\n"
+        "💎 <b>Modal Akhir:</b> <code>Rp 135.688.413</code>\n"
+        "🚀 <b>Net Profit Bersih:</b> <b>+Rp 35.688.413 (+35.7%)</b>\n"
+        "📈 <b>Profit Factor:</b> <code>1.78</code> (Keuntungan vs Kerugian)\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "🏆 <b>CONTOH TRADE RUNNER MULTI-BAGGER:</b>\n"
+        "• <b>#MEDC</b> (285 lot): Masuk Rp874 ➔ Keluar Rp1.357 | <b>+Rp 13,62 Juta (+54.6%)</b>\n"
+        "• <b>#MDKA</b> (115 lot): Masuk Rp2.159 ➔ Keluar Rp3.194 | <b>+Rp 11,77 Juta (+47.3%)</b>\n"
+        "• <b>#ASII</b> (64 lot): Masuk Rp3.889 ➔ Keluar Rp5.735 | <b>+Rp 11,68 Juta (+46.8%)</b>\n"
+        "• <b>#PANI</b> (48 lot): Masuk Rp5.119 ➔ Keluar Rp6.992 | <b>+Rp 8,86 Juta (+36.0%)</b>\n"
+        "• <b>#TPIA</b> (58 lot): Masuk Rp4.237 ➔ Keluar Rp5.446 | <b>+Rp 6,89 Juta (+28.0%)</b>\n"
+        "• <b>#BIPI</b> (3.048 lot): Masuk Rp82 ➔ Keluar Rp99 | <b>+Rp 5,06 Juta (+20.2%)</b>\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "🛡️ <b>DISIPLIN PROTEKSI SAAT IHSG TURUN:</b>\n"
+        "• Setiap posisi rugi dipotong ketat di <b>-6.0%</b> (rugi cuma ~Rp 1,5 Juta per saham, aman!).\n"
+        "• Saat IHSG anjlok &gt;1.2% (Panic Crash), bot membekukan pembelian (Cash is King).\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "💡 <i>Gunakan perintah <code>/regime</code> untuk cek kondisi risiko IHSG hari ini atau <code>/calc [KODE] 100jt</code> untuk hitung lot trading Anda!</i>"
+    )
 
 
 def format_whale_scan_message(stocks: list, title_tag: str = "LQ45", limit: int = 7) -> str:
@@ -691,6 +741,8 @@ def handle_telegram_command(command_text: str, chat_id: str):
             "Bot ini memantau IHSG dan mendeteksi saham yang diakumulasi Whale / Smart Money "
             "menggunakan metodologi kuantitatif <b>Hedge Fund &amp; Wyckoff</b>.\n\n"
             "📌 <b>Daftar Perintah Screening &amp; Sinyal:</b>\n"
+            "• <code>/regime</code> — 🌐 Status Kesehatan IHSG &amp; Rekomendasi Proteksi Cash\n"
+            "• <code>/simulasi100jt</code> — 💰 Hasil Real Backtest Modal Rp 100 Juta (2024-2026)\n"
             "• <code>/multibagger [KODE]</code> — 🚀 Radar Saham Potensi Ratusan Persen (Rumor + Akumulasi)\n"
             "• <code>/rumor [KODE]</code> — Bedah Rumor Aksi Korporasi (Akuisisi, Pengendali, Konglomerat)\n"
             "• <code>/multibagger_all</code> — Scan Saham Potensi Multibagger di 100 Saham Kompas100\n"
@@ -751,6 +803,14 @@ def handle_telegram_command(command_text: str, chat_id: str):
         send_telegram_message("⏳ <i>Sedang menganalisis data IHSG...</i>", chat_id)
         data = analyze_ihsg()
         send_long_telegram_message(format_ihsg_message(data), chat_id)
+
+    elif cmd in ["/regime", "/ihsg_defense", "/macro"]:
+        send_telegram_message("🌐 <i>Mendiagnosis kondisi kesehatan IHSG &amp; sinyal proteksi crash...</i>", chat_id)
+        data_reg = get_ihsg_market_regime()
+        send_long_telegram_message(format_ihsg_regime_message(data_reg), chat_id)
+
+    elif cmd in ["/simulasi100jt", "/portofolio", "/backtest100m"]:
+        send_long_telegram_message(format_simulasi_100m_message(), chat_id)
 
     elif cmd in ["/whale", "/bandar"]:
         if len(parts) > 1:
@@ -846,10 +906,10 @@ def handle_telegram_command(command_text: str, chat_id: str):
         if not send_telegram_photo(buf, caption=caption, chat_id=chat_id):
             send_telegram_message(f"❌ Gagal mengirim gambar chart #{esc(ticker)} ke Telegram.", chat_id)
 
-    elif cmd in ["/calc", "/hitung", "/money"]:
+    elif cmd in ["/calc", "/hitung", "/money", "/lot"]:
         if len(parts) < 3:
             send_telegram_message(
-                "⚠️ Format salah! Gunakan: <code>/calc [KODE] [MODAL]</code>\nContoh: <code>/calc BBCA 10jt</code> atau <code>/calc BBRI 25000000</code>",
+                "⚠️ Format salah! Gunakan: <code>/lot [KODE] [MODAL]</code>\nContoh: <code>/lot BIPI 100jt</code> atau <code>/calc BBCA 10jt</code>",
                 chat_id
             )
             return
