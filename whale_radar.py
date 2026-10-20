@@ -12,9 +12,12 @@ Mengadopsi metodologi institutional quantitative desk untuk melacak jejak Smart 
    - Deteksi divergensi ketika harga saham ditekan turun / sideways, namun akumulasi uang masuk deras
 4. Volatility Squeeze Accumulation:
    - Kompresi volatilitas Bollinger Band saat bandar mengontrol harga agar tidak gaduh
+5. Whale Accumulation Tier List:
+   - Pengelompokan saham ke dalam Tier S (God Tier), Tier A (High Conviction), dan Tier B (Early Accumulation).
 """
 
 from typing import Dict, Any, List, Optional
+from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import numpy as np
 from signal_engine import fetch_stock_data, calculate_support_resistance
@@ -228,20 +231,68 @@ def analyze_whale_footprint(ticker: str, df: Optional[pd.DataFrame] = None) -> D
     }
 
 
-def scan_top_whale_accumulations(watchlist: Optional[List[str]] = None, limit: int = 5) -> List[Dict[str, Any]]:
+def scan_top_whale_accumulations(watchlist: Optional[List[str]] = None, limit: int = 6, max_workers: int = 8) -> List[Dict[str, Any]]:
     """
-    Memindai seluruh saham di watchlist untuk mencari saham dengan akumulasi Whale tertinggi.
+    Memindai seluruh saham di watchlist secara paralel untuk mencari akumulasi Whale tertinggi.
     """
     tickers = watchlist or LQ45_WATCHLIST
     results = []
 
-    for t in tickers:
+    def _fetch(t):
         try:
-            res = analyze_whale_footprint(t)
-            if "error" not in res and res.get("whale_score", 0) >= 70:
-                results.append(res)
+            return analyze_whale_footprint(t)
         except Exception:
-            continue
+            return None
+
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        raw_res = list(ex.map(_fetch, tickers))
+
+    for res in raw_res:
+        if res and "error" not in res and res.get("whale_score", 0) >= 70:
+            results.append(res)
 
     results.sort(key=lambda x: x["whale_score"], reverse=True)
     return results[:limit]
+
+
+def get_whale_tier_list(watchlist: Optional[List[str]] = None, max_workers: int = 8) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Menyusun Tier List saham yang sedang diakumulasi Whale:
+    - Tier S (Monster Whale & High Conviction): Skor >= 90
+    - Tier A (Strong Inflow & Ready to Breakout): Skor 80 - 89
+    - Tier B (Early Accumulation / Support Test): Skor 70 - 79
+    """
+    tickers = watchlist or LQ45_WATCHLIST
+    tier_s = []
+    tier_a = []
+    tier_b = []
+
+    def _fetch(t):
+        try:
+            return analyze_whale_footprint(t)
+        except Exception:
+            return None
+
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        raw_res = list(ex.map(_fetch, tickers))
+
+    for res in raw_res:
+        if not res or "error" in res:
+            continue
+        score = res.get("whale_score", 0)
+        if score >= 90:
+            tier_s.append(res)
+        elif score >= 80:
+            tier_a.append(res)
+        elif score >= 70:
+            tier_b.append(res)
+
+    tier_s.sort(key=lambda x: (x["whale_score"], -x["pct_diff_vwap20"]), reverse=True)
+    tier_a.sort(key=lambda x: (x["whale_score"], -x["pct_diff_vwap20"]), reverse=True)
+    tier_b.sort(key=lambda x: (x["whale_score"], -x["pct_diff_vwap20"]), reverse=True)
+
+    return {
+        "tier_s": tier_s,
+        "tier_a": tier_a,
+        "tier_b": tier_b
+    }
