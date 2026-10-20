@@ -71,6 +71,64 @@ def make_stock_inline_keyboard(ticker: str) -> dict:
     }
 
 
+def make_persistent_reply_keyboard() -> dict:
+    """
+    Keyboard menu tombol tetap di bawah layar Telegram agar user bisa langsung pencet.
+    """
+    return {
+        "keyboard": [
+            [
+                {"text": "🚀 Radar Multi-Bagger"},
+                {"text": "🏆 Tier List Whale"}
+            ],
+            [
+                {"text": "🌐 Status Pasar IHSG"},
+                {"text": "💰 Portofolio 100 Juta"}
+            ],
+            [
+                {"text": "🐋 Top Whale LQ45"},
+                {"text": "🏛️ Wyckoff Hedge Fund"}
+            ],
+            [
+                {"text": "🔄 Rotasi Sektor"},
+                {"text": "📰 Radar Aksi Korporasi"}
+            ]
+        ],
+        "resize_keyboard": True,
+        "is_persistent": True
+    }
+
+
+def make_main_inline_menu() -> dict:
+    """
+    Menu tombol interaktif sekali klik di dalam chat Telegram.
+    """
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "🚀 Radar Multi-Bagger", "callback_data": "menu:multibagger"},
+                {"text": "🏆 Tier List Whale", "callback_data": "menu:tierlist"}
+            ],
+            [
+                {"text": "🌐 Status Kesehatan IHSG", "callback_data": "menu:regime"},
+                {"text": "💰 Portofolio 100 Juta", "callback_data": "menu:simulasi100jt"}
+            ],
+            [
+                {"text": "🐋 Top Whale LQ45", "callback_data": "menu:whalelist"},
+                {"text": "🏛️ Wyckoff Spring", "callback_data": "menu:hedge"}
+            ],
+            [
+                {"text": "🔄 Rotasi Sektor", "callback_data": "menu:sektor"},
+                {"text": "📰 Rumor & Aksi Korporasi", "callback_data": "menu:insider"}
+            ],
+            [
+                {"text": "💎 Bedah Rumor BIPI", "callback_data": "rumor:BIPI"},
+                {"text": "💎 Bedah Modal PANI", "callback_data": "rumor:PANI"}
+            ]
+        ]
+    }
+
+
 def send_telegram_message(text: str, chat_id: str = None, parse_mode: str = "HTML", reply_markup: dict = None) -> bool:
     token = TELEGRAM_BOT_TOKEN
     target_id = chat_id or TELEGRAM_CHAT_ID
@@ -727,8 +785,60 @@ def handle_telegram_callback(callback_query: dict):
         resp_ai = answer_market_query(f"apakah aman beli {ticker} sekarang?")
         send_long_telegram_message(resp_ai, chat_id)
 
+    elif action == "menu":
+        target = ticker.lower()
+        if target == "multibagger":
+            send_telegram_message("🚀 <i>Memindai saham potensi Multi-Bagger (Rumor Aksi Korporasi + Akumulasi)...</i>", chat_id)
+            picks = scan_top_multibagger_picks(limit=6)
+            send_long_telegram_message(format_multibagger_scan_message(picks), chat_id)
+        elif target == "tierlist":
+            send_telegram_message("🏆 <i>Menyusun Tier List akumulasi Whale LQ45 (Tier S, A, B)...</i>", chat_id)
+            tiers = get_whale_tier_list(LQ45_WATCHLIST)
+            send_long_telegram_message(format_whale_tier_list_message(tiers), chat_id)
+        elif target == "regime":
+            data_reg = get_ihsg_market_regime()
+            send_long_telegram_message(format_ihsg_regime_message(data_reg), chat_id)
+        elif target == "simulasi100jt":
+            send_long_telegram_message(format_simulasi_100m_message(), chat_id)
+        elif target == "whalelist":
+            top_whales = scan_top_whale_accumulations(limit=6)
+            send_long_telegram_message(format_top_whale_scan_message(top_whales, title_tag="LQ45 WHALE"), chat_id)
+        elif target == "hedge":
+            picks = scan_hedgefund_picks(limit=6)
+            send_long_telegram_message(format_hedgefund_scan_message(picks), chat_id)
+        elif target == "sektor":
+            sectors = scan_sector_rotation()
+            send_long_telegram_message(format_sector_rotation_message(sectors), chat_id)
+        elif target == "insider":
+            actions = fetch_insider_corporate_actions(limit=5)
+            lines = [
+                "🕵️‍♂️ <b>RADAR INSIDER &amp; AKSI KORPORASI</b>",
+                "<i>Kabar Merger, Akuisisi, Buyback &amp; Dividen Terkini:</i>",
+                "━━━━━━━━━━━━━━━━━━━"
+            ]
+            for a in actions:
+                lines.append(f"{a['badge']} <b>{a['category']}</b>\n👉 {a['title']} <i>({a['source']})</i>\n")
+            lines.append("━━━━━━━━━━━━━━━━━━━")
+            send_long_telegram_message("\n".join(lines), chat_id)
+
 
 def handle_telegram_command(command_text: str, chat_id: str):
+    raw_text = command_text.strip()
+
+    # Mapping tombol keyboard bawah Telegram agar user cukup klik tanpa ngetik
+    BTN_MAP = {
+        "🚀 Radar Multi-Bagger": "/multibagger",
+        "🏆 Tier List Whale": "/tierlist",
+        "🌐 Status Pasar IHSG": "/regime",
+        "💰 Portofolio 100 Juta": "/simulasi100jt",
+        "🐋 Top Whale LQ45": "/whalelist",
+        "🏛️ Wyckoff Hedge Fund": "/hedge",
+        "🔄 Rotasi Sektor": "/sektor",
+        "📰 Radar Aksi Korporasi": "/insider"
+    }
+    if raw_text in BTN_MAP:
+        command_text = BTN_MAP[raw_text]
+
     parts = command_text.strip().split()
     if not parts:
         return
@@ -738,33 +848,12 @@ def handle_telegram_command(command_text: str, chat_id: str):
     if cmd in ["/start", "/menu", "/help"]:
         help_msg = (
             "🤖 <b>IHSG &amp; WHALE BANDARMOLOGY SIGNAL BOT</b>\n\n"
-            "Bot ini memantau IHSG dan mendeteksi saham yang diakumulasi Whale / Smart Money "
-            "menggunakan metodologi kuantitatif <b>Hedge Fund &amp; Wyckoff</b>.\n\n"
-            "📌 <b>Daftar Perintah Screening &amp; Sinyal:</b>\n"
-            "• <code>/regime</code> — 🌐 Status Kesehatan IHSG &amp; Rekomendasi Proteksi Cash\n"
-            "• <code>/simulasi100jt</code> — 💰 Hasil Real Backtest Modal Rp 100 Juta (2024-2026)\n"
-            "• <code>/multibagger [KODE]</code> — 🚀 Radar Saham Potensi Ratusan Persen (Rumor + Akumulasi)\n"
-            "• <code>/rumor [KODE]</code> — Bedah Rumor Aksi Korporasi (Akuisisi, Pengendali, Konglomerat)\n"
-            "• <code>/multibagger_all</code> — Scan Saham Potensi Multibagger di 100 Saham Kompas100\n"
-            "• <code>/tierlist</code> — 🏆 Tier List Saham Akumulasi Whale (Tier S, A, B)\n"
-            "• <code>/whale [KODE]</code> — Radar Akumulasi &amp; Modal Bandar (Contoh: <code>/whale BBCA</code>)\n"
-            "• <code>/whalelist</code> — Top Saham LQ45 yang Sedang Dikoleksi Whale Hari Ini\n"
-            "• <code>/hedge [KODE]</code> — Radar Akumulasi Diam-diam &amp; Spring Shakeout Ala Hedge Fund\n"
-            "• <code>/tanya [PERTANYAAN]</code> — Tanya jawab pasar &amp; saham bebas ke AI Copilot\n"
-            "• <code>/scan KODE</code> — Analisis saham + Tombol Interaktif Pintar\n"
-            "• <code>/chart KODE</code> — Grafik Candlestick teknikal + MA20/50 + TP/SL\n"
-            "• <code>/calc KODE MODAL</code> — Hitung lot aman &amp; risiko (Misal: <code>/calc BBCA 10jt</code>)\n"
-            "• <code>/sektor</code> — Radar rotasi arus dana antar sektor bursa\n"
-            "• <code>/flow KODE</code> — Analisis Order Flow murni + Profil Order Jumbo Bandar\n"
-            "• <code>/ihsg</code> — Sinyal &amp; analisis kondisi pasar IHSG terkini\n"
-            "• <code>/lq45</code> — Screening 45 saham terlikuid (LQ45)\n"
-            "• <code>/insider [KODE]</code> — Radar Aksi Korporasi &amp; Keterbukaan Info\n"
-            "• <code>/undervalued [KODE]</code> — Cek Saham Murah / Screener Lintas Sektor\n"
-            "• <code>/dividen</code> — Radar Saham dengan Dividend Yield Tertinggi\n"
-            "• <code>/daily</code> — Ringkasan harian IHSG &amp; Radar Hedge Fund\n\n"
-            "💡 <i>Tip: Anda bisa klik tombol interaktif di bawah pesan tanpa perlu ketik ulang!</i>"
+            "Bot ini memantau IHSG dan mendeteksi saham yang diakumulasi Whale / Smart Money.\n\n"
+            "👇 <b>Cukup sentuh tombol menu di bawah layar atau klik tombol pilihan cepat berikut tanpa perlu mengetik:</b>"
         )
-        send_long_telegram_message(help_msg, chat_id)
+        send_telegram_message(help_msg, chat_id, reply_markup=make_persistent_reply_keyboard())
+        send_telegram_message("⚡ <b>PILIHAN MENU CEPAT (KLIK LANGSUNG):</b>", chat_id, reply_markup=make_main_inline_menu())
+        return
 
     elif cmd in ["/hedge", "/hedgefund", "/wyckoff"]:
         if len(parts) > 1:
