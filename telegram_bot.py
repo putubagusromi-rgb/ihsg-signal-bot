@@ -49,6 +49,14 @@ from portfolio_tracker import (
     format_portfolio_message,
     format_portfolio_daily_brief
 )
+from daily_stock_picks import (
+    get_daily_top3_picks,
+    generate_stock_pick_image,
+    format_daily_stock_pick_caption,
+    evaluate_daily_result,
+    generate_daily_result_image,
+    format_daily_result_caption
+)
 
 esc = html.escape
 _command_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="cmd")
@@ -77,6 +85,10 @@ def make_stock_inline_keyboard(ticker: str) -> dict:
 def make_main_inline_menu() -> dict:
     return {
         "inline_keyboard": [
+            [
+                {"text": "📋 3 Saham Pilihan Pagi", "callback_data": "menu:stockpick"},
+                {"text": "🏆 Daily Result Hari Ini", "callback_data": "menu:dailyresult"}
+            ],
             [
                 {"text": "🔮 Prediksi IHSG Besok", "callback_data": "menu:prediksi"},
                 {"text": "⚡ Radar ARA Hunter", "callback_data": "menu:arahunter"}
@@ -109,12 +121,12 @@ def make_compact_reply_keyboard() -> dict:
     return {
         "keyboard": [
             [
-                {"text": "🔮 Prediksi Arah IHSG"},
-                {"text": "⚡ Radar ARA Hunter"}
+                {"text": "📋 3 Saham Pilihan"},
+                {"text": "🏆 Daily Result"}
             ],
             [
-                {"text": "💼 Portofolio Pribadi"},
-                {"text": "🚀 Radar Multi-Bagger"}
+                {"text": "🔮 Prediksi Arah IHSG"},
+                {"text": "⚡ Radar ARA Hunter"}
             ]
         ],
         "resize_keyboard": True,
@@ -135,6 +147,8 @@ def setup_bot_commands():
 
     commands = [
         {"command": "menu", "description": "⚡ Panel Menu Lengkap Bot"},
+        {"command": "pick", "description": "📋 3 Saham Pilihan Pagi (08:30 WIB)"},
+        {"command": "result", "description": "🏆 Daily Result Evaluasi Hasil (16:15 WIB)"},
         {"command": "daily", "description": "📊 Laporan Harian Lengkap Pasar"},
         {"command": "prediksi", "description": "🔮 Prediksi Arah IHSG Besok (Win Rate 67%)"},
         {"command": "arahunter", "description": "⚡ Radar Saham Potensi ARA Besok"},
@@ -203,7 +217,7 @@ def send_telegram_photo(photo_bytes: bytes, caption: str = "", chat_id: str = No
     target_chat = chat_id or TELEGRAM_CHAT_ID
 
     if not token or not target_chat or token == "YOUR_TELEGRAM_BOT_TOKEN_HERE":
-        print(f"[Telegram Mock Photo] Kirim foto ke {target_chat} dengan caption: {caption}")
+        print(f"[Telegram Mock Photo] Kirim foto ke {target_chat}")
         return True
 
     url = f"https://api.telegram.org/bot{token}/sendPhoto"
@@ -889,7 +903,11 @@ def handle_telegram_callback(callback_query: dict):
 
     elif action == "menu" and len(parts) > 1:
         target = parts[1]
-        if target == "prediksi":
+        if target == "stockpick":
+            handle_telegram_command("/pick", chat_id)
+        elif target == "dailyresult":
+            handle_telegram_command("/result", chat_id)
+        elif target == "prediksi":
             send_telegram_message("🔮 <i>Menganalisis Wall Street, kurs Rupiah & teknikal IHSG...</i>", chat_id)
             pred = predict_daily_ihsg_direction()
             send_long_telegram_message(format_daily_prediction_message(pred), chat_id)
@@ -953,6 +971,8 @@ def _handle_telegram_command_impl(command_text: str, chat_id: str):
     raw_text = command_text.strip()
 
     BTN_MAP = {
+        "📋 3 Saham Pilihan": "/pick",
+        "🏆 Daily Result": "/result",
         "🔮 Prediksi Arah IHSG": "/prediksi",
         "🚀 Radar Multi-Bagger": "/multibagger",
         "⚡ Radar ARA Hunter": "/arahunter",
@@ -969,6 +989,10 @@ def _handle_telegram_command_impl(command_text: str, chat_id: str):
     raw_lower = raw_text.lower()
     if raw_text in BTN_MAP:
         command_text = BTN_MAP[raw_text]
+    elif "3 saham" in raw_lower or "stock pick" in raw_lower or "rekomendasi" in raw_lower or "pilihan" in raw_lower:
+        command_text = "/pick"
+    elif "daily result" in raw_lower or "hasil hari ini" in raw_lower or "evaluasi" in raw_lower or raw_lower == "result":
+        command_text = "/result"
     elif "bersih" in raw_lower or "keyboard_off" in raw_lower or "tutup tombol" in raw_lower or "sembunyi" in raw_lower:
         command_text = "/bersih"
     elif "keyboard_on" in raw_lower or "buka tombol" in raw_lower or raw_lower == "keyboard":
@@ -1043,6 +1067,20 @@ def _handle_telegram_command_impl(command_text: str, chat_id: str):
             reply_markup=make_compact_reply_keyboard()
         )
         return
+
+    elif cmd in ["/pick", "/stockpick", "/rekomendasi", "/pilihan"]:
+        send_telegram_message("⏳ <i>Menyiapkan kartu grafis 3 Saham Pilihan Terbaik Hari Ini...</i>", chat_id)
+        picks = get_daily_top3_picks()
+        pick_img = generate_stock_pick_image(picks)
+        pick_cap = format_daily_stock_pick_caption(picks)
+        send_telegram_photo(pick_img, caption=pick_cap, chat_id=chat_id)
+
+    elif cmd in ["/result", "/dailyresult", "/hasil", "/evaluasi"]:
+        send_telegram_message("⏳ <i>Mengevaluasi hasil pergerakan harga 3 saham pilihan hari ini...</i>", chat_id)
+        eval_data = evaluate_daily_result()
+        res_img = generate_daily_result_image(eval_data)
+        res_cap = format_daily_result_caption(eval_data)
+        send_telegram_photo(res_img, caption=res_cap, chat_id=chat_id)
 
     elif cmd in ["/arahunter", "/ara"]:
         send_telegram_message("⚡ <i>Memindai radar ARA Hunter &amp; ledakan volume penutupan bursa...</i>", chat_id)
@@ -1393,44 +1431,64 @@ def scheduled_worker():
             # Morning Brief (08:30 WIB - 30 Menit Sebelum Buka)
             if now_str == SCHEDULED_ALERTS.get("morning_brief", "08:30") and already_sent["morning"] != today_str:
                 if TELEGRAM_CHAT_ID:
-                    ihsg = analyze_ihsg()
-                    hedge_picks = scan_hedgefund_picks(limit=4)
-                    top_whales = scan_top_whale_accumulations(limit=3)
-                    stocks = scan_whale_watchlist(LQ45_WATCHLIST)
-                    msg = (
-                        "🌅 <b>MORNING MARKET RADAR &amp; WHALE REPORT (08:30 WIB)</b>\n"
-                        "<i>30 Menit Menuju Pembukaan Sesi 1 IHSG!</i>\n\n"
-                        + format_ihsg_message(ihsg) + "\n\n"
-                        + format_top_whale_scan_message(top_whales, title_tag="TOP WHALE ACCUMULATION") + "\n\n"
-                        + format_hedgefund_scan_message(hedge_picks) + "\n\n"
-                        + format_whale_scan_message(stocks, title_tag="LQ45 WHALE MOMENTUM", limit=4)
-                    )
-                    send_long_telegram_message(msg)
-                    already_sent["morning"] = today_str
+                    try:
+                        # 1. Kirim Kartu Grafis Daily Stock Pick 3 Terbaik
+                        picks = get_daily_top3_picks(force_refresh=True)
+                        pick_img = generate_stock_pick_image(picks)
+                        pick_cap = format_daily_stock_pick_caption(picks)
+                        send_telegram_photo(pick_img, caption=pick_cap)
+
+                        # 2. Kirim Analisa Kondisi Pasar
+                        ihsg = analyze_ihsg()
+                        hedge_picks = scan_hedgefund_picks(limit=4)
+                        top_whales = scan_top_whale_accumulations(limit=3)
+                        stocks = scan_whale_watchlist(LQ45_WATCHLIST)
+                        msg = (
+                            "🌅 <b>MORNING MARKET RADAR &amp; WHALE REPORT (08:30 WIB)</b>\n"
+                            "<i>30 Menit Menuju Pembukaan Sesi 1 IHSG!</i>\n\n"
+                            + format_ihsg_message(ihsg) + "\n\n"
+                            + format_top_whale_scan_message(top_whales, title_tag="TOP WHALE ACCUMULATION") + "\n\n"
+                            + format_hedgefund_scan_message(hedge_picks) + "\n\n"
+                            + format_whale_scan_message(stocks, title_tag="LQ45 WHALE MOMENTUM", limit=4)
+                        )
+                        send_long_telegram_message(msg)
+                        already_sent["morning"] = today_str
+                    except Exception as e:
+                        print(f"[Morning Scheduler Error] {e}")
 
             # Closing Report (16:15 WIB)
             if now_str == SCHEDULED_ALERTS.get("market_closing", "16:15") and already_sent["closing"] != today_str:
                 if TELEGRAM_CHAT_ID:
-                    ihsg = analyze_ihsg()
-                    ara_picks = scan_ara_hunter_picks(limit=3)
-                    hedge_picks = scan_hedgefund_picks(limit=4)
-                    top_whales = scan_top_whale_accumulations(limit=3)
-                    stocks = scan_whale_watchlist(LQ45_WATCHLIST)
-                    port_brief = format_portfolio_daily_brief(TELEGRAM_CHAT_ID)
+                    try:
+                        # 1. Kirim Kartu Grafis Daily Result Hari Ini (Evaluasi 3 Saham)
+                        eval_data = evaluate_daily_result()
+                        res_img = generate_daily_result_image(eval_data)
+                        res_cap = format_daily_result_caption(eval_data)
+                        send_telegram_photo(res_img, caption=res_cap)
 
-                    msg_parts = [
-                        "🌇 <b>POST-MARKET CLOSING &amp; WHALE REPORT (16:15 WIB)</b>\n",
-                        format_ihsg_message(ihsg) + "\n",
-                        format_ara_hunter_message(ara_picks) + "\n",
-                        format_top_whale_scan_message(top_whales, title_tag="CLOSING WHALE ACCUMULATION") + "\n",
-                        format_hedgefund_scan_message(hedge_picks) + "\n",
-                        format_whale_scan_message(stocks, title_tag="LQ45 CLOSING WHALE", limit=4)
-                    ]
-                    if port_brief:
-                        msg_parts.append("\n━━━━━━━━━━━━━━━━━━━\n" + port_brief)
+                        # 2. Kirim Laporan Penutupan Pasar & Portofolio
+                        ihsg = analyze_ihsg()
+                        ara_picks = scan_ara_hunter_picks(limit=3)
+                        hedge_picks = scan_hedgefund_picks(limit=4)
+                        top_whales = scan_top_whale_accumulations(limit=3)
+                        stocks = scan_whale_watchlist(LQ45_WATCHLIST)
+                        port_brief = format_portfolio_daily_brief(TELEGRAM_CHAT_ID)
 
-                    send_long_telegram_message("\n".join(msg_parts))
-                    already_sent["closing"] = today_str
+                        msg_parts = [
+                            "🌇 <b>POST-MARKET CLOSING &amp; WHALE REPORT (16:15 WIB)</b>\n",
+                            format_ihsg_message(ihsg) + "\n",
+                            format_ara_hunter_message(ara_picks) + "\n",
+                            format_top_whale_scan_message(top_whales, title_tag="CLOSING WHALE ACCUMULATION") + "\n",
+                            format_hedgefund_scan_message(hedge_picks) + "\n",
+                            format_whale_scan_message(stocks, title_tag="LQ45 CLOSING WHALE", limit=4)
+                        ]
+                        if port_brief:
+                            msg_parts.append("\n━━━━━━━━━━━━━━━━━━━\n" + port_brief)
+
+                        send_long_telegram_message("\n".join(msg_parts))
+                        already_sent["closing"] = today_str
+                    except Exception as e:
+                        print(f"[Closing Scheduler Error] {e}")
 
             time.sleep(30)
         except Exception as e:
