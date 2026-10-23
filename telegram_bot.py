@@ -47,9 +47,6 @@ _command_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="cmd")
 
 
 def make_stock_inline_keyboard(ticker: str) -> dict:
-    """
-    Membuat tombol interaktif Telegram sekali klik untuk saham tertentu.
-    """
     t = ticker.replace(".JK", "").strip().upper()
     return {
         "inline_keyboard": [
@@ -73,9 +70,6 @@ def make_stock_inline_keyboard(ticker: str) -> dict:
 
 
 def make_persistent_reply_keyboard() -> dict:
-    """
-    Keyboard menu tombol tetap di bawah layar Telegram agar user bisa langsung pencet.
-    """
     return {
         "keyboard": [
             [
@@ -101,9 +95,6 @@ def make_persistent_reply_keyboard() -> dict:
 
 
 def make_main_inline_menu() -> dict:
-    """
-    Menu tombol interaktif sekali klik di dalam chat Telegram.
-    """
     return {
         "inline_keyboard": [
             [
@@ -244,22 +235,26 @@ def format_daily_prediction_message(data: dict) -> str:
         return f"❌ <b>Error:</b> {esc(str(data['error']))}"
 
     factors_str = "\n".join([f"• {f}" for f in data.get("factors", [])])
+    tier = data.get("tier_label", "⚡ TIER 2: SINYAL HARIAN")
+    win_rate = data.get("win_rate_est", "60%")
+
     return (
-        "🔮 <b>PREDIKSI HARIAN ARAH IHSG (AI DAILY FORECAST)</b> 📊\n"
-        "<i>Berdasarkan Model 4 Hybrid (Wall Street + Kurs Rupiah + RSI Ekstrem + EMA)</i>\n"
+        "🔮 <b>PREDIKSI HARIAN ARAH IHSG (AI SNIPER ENGINE)</b> 📊\n"
+        "<i>Berdasarkan 4 Pola Sniper: EIDO Wall Street + Kurs Rupiah + V-Rebound</i>\n"
         "━━━━━━━━━━━━━━━━━━━\n"
+        f"🏷️ <b>Status Tingkatan:</b> <b>{tier}</b>\n"
         f"🎯 <b>Arah Prediksi:</b> <b>{data['direction']}</b>\n"
-        f"📊 <b>Tingkat Keyakinan (Confidence):</b> <code>{data['confidence']}%</code>\n"
-        f"⚡ <b>Skor Komposit:</b> <code>{data['score']:+d}</code> (-100 s/d +100)\n"
+        f"🏆 <b>Akurasi Historis (Win Rate):</b> <code>{win_rate}</code>\n"
+        f"⚡ <b>Skor Kekuatan Sinyal:</b> <code>{data['score']:+d}</code> (-100 s/d +100)\n"
         "━━━━━━━━━━━━━━━━━━━\n"
         f"💵 <b>Level IHSG Terakhir:</b> <code>{data['ihsg_current']:,.2f}</code> ({data['ihsg_last_chg']:+.2f}%)\n"
         f"🛡️ <b>Estimasi Support Harian:</b> <code>{data['support']:,.2f}</code>\n"
         f"🚀 <b>Estimasi Resistance Harian:</b> <code>{data['resistance']:,.2f}</code>\n"
         "━━━━━━━━━━━━━━━━━━━\n"
-        "🔍 <b>4 FAKTOR PENENTU HARI INI:</b>\n"
+        "🔍 <b>FAKTOR KUNCI HARI INI:</b>\n"
         f"{factors_str}\n"
         "━━━━━━━━━━━━━━━━━━━\n"
-        f"💡 <b>PANDUAN AKSI TRADING:</b>\n<i>{data['guidance']}</i>"
+        f"💡 <b>PANDUAN EKSEKUSI TRADING:</b>\n<i>{data['guidance']}</i>"
     )
 
 
@@ -390,7 +385,7 @@ def format_flow_message(data: dict) -> str:
 
     return (
         f"🌊 <b>ORDER FLOW &amp; WHALE FOOTPRINT: #{data['ticker']}</b>\n"
-        f"📅 <i>Tanggal: {data['date']} | Harga: Rp{int(data['close']):,} ({chg_sym}{data['pct_change']:.2f}%)\n"
+        f"📅 <i>Tanggal: {data['date']} | Harga: Rp{int(data['close']):,} ({chg_sym}{data['pct_change']:.2f}%)</i>\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
         f"⚖️ <b>TEKANAN VOLUME &amp; MONEY FLOW:</b>\n"
         f"• Arah Arus Uang: <b>{domination}</b>\n"
@@ -815,7 +810,7 @@ def handle_telegram_callback(callback_query: dict):
     elif action == "menu":
         target = ticker.lower()
         if target == "prediksi":
-            send_telegram_message("🔮 <i>Menganalisis Wall Street semalam, kurs Rupiah &amp; teknikal IHSG...</i>", chat_id)
+            send_telegram_message("🔮 <i>Menganalisis EIDO Wall Street, kurs Rupiah &amp; pola Sniper IHSG...</i>", chat_id)
             pred = predict_daily_ihsg_direction()
             send_long_telegram_message(format_daily_prediction_message(pred), chat_id)
         elif target == "multibagger":
@@ -907,7 +902,7 @@ def handle_telegram_command(command_text: str, chat_id: str):
         return
 
     elif cmd in ["/prediksi", "/arah", "/forecast", "/besok"]:
-        send_telegram_message("🔮 <i>Menganalisis Wall Street semalam, kurs Rupiah &amp; teknikal IHSG...</i>", chat_id)
+        send_telegram_message("🔮 <i>Menganalisis EIDO Wall Street, kurs Rupiah &amp; pola Sniper IHSG...</i>", chat_id)
         pred = predict_daily_ihsg_direction()
         send_long_telegram_message(format_daily_prediction_message(pred), chat_id)
 
