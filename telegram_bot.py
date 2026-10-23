@@ -41,15 +41,20 @@ from whale_radar import analyze_whale_footprint, scan_top_whale_accumulations, g
 from multibagger_radar import analyze_multibagger_rumor, scan_top_multibagger_picks
 from macro_regime import get_ihsg_market_regime
 from daily_prediction import predict_daily_ihsg_direction
+from ara_hunter import scan_ara_hunter_picks, format_ara_hunter_message
+from portfolio_tracker import (
+    add_stock_to_portfolio,
+    remove_stock_from_portfolio,
+    evaluate_user_portfolio,
+    format_portfolio_message,
+    format_portfolio_daily_brief
+)
 
 esc = html.escape
 _command_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="cmd")
 
 
 def make_stock_inline_keyboard(ticker: str) -> dict:
-    """
-    Membuat tombol interaktif Telegram sekali klik untuk saham tertentu.
-    """
     t = ticker.replace(".JK", "").strip().upper()
     return {
         "inline_keyboard": [
@@ -73,10 +78,6 @@ def make_stock_inline_keyboard(ticker: str) -> dict:
 
 
 def setup_bot_commands() -> bool:
-    """
-    Mendaftarkan menu perintah bot ke Telegram API agar muncul sebagai tombol [Menu]
-    di pojok kiri bawah kolom ketik tanpa memakan ruang layar obrolan sama sekali.
-    """
     token = TELEGRAM_BOT_TOKEN
     if not token or token == "YOUR_TELEGRAM_BOT_TOKEN_HERE":
         return False
@@ -84,14 +85,18 @@ def setup_bot_commands() -> bool:
     commands = [
         {"command": "prediksi", "description": "🔮 Prediksi Arah IHSG Besok (AI Sniper)"},
         {"command": "multibagger", "description": "🚀 Radar Saham Potensi Multi-Bagger"},
+        {"command": "arahunter", "description": "⚡ Radar ARA Hunter (Calon Meledak Besok)"},
+        {"command": "watchlist", "description": "💼 Portofolio Pantauan Pribadi (TP/SL)"},
+        {"command": "pantau", "description": "➕ Tambah Saham Pantauan (/pantau KODE HARGA LOT)"},
         {"command": "tierlist", "description": "🏆 Tier List Akumulasi Whale LQ45"},
+        {"command": "daily", "description": "📅 Laporan Harian Lengkap Pasar"},
         {"command": "regime", "description": "🌐 Status Kesehatan Pasar IHSG"},
         {"command": "whalelist", "description": "🐋 Top Whale Accumulation"},
         {"command": "hedge", "description": "🏛️ Wyckoff Silent Absorption"},
         {"command": "sektor", "description": "🔄 Rotasi Sektor IDX"},
         {"command": "insider", "description": "📰 Keterbukaan Informasi & Rumor"},
         {"command": "bersih", "description": "🧹 Mode Bersih (Tutup Tombol Bawah)"},
-        {"command": "keyboard", "description": "⌨️ Tampilkan Tombol Menu Bawah (Ramping)"},
+        {"command": "keyboard", "description": "⌨️ Tampilkan Tombol Menu Bawah"},
         {"command": "menu", "description": "📱 Buka Menu Navigasi Utama"}
     ]
     try:
@@ -103,10 +108,6 @@ def setup_bot_commands() -> bool:
 
 
 def make_compact_reply_keyboard() -> dict:
-    """
-    Keyboard menu tombol ramping 2 baris (tidak menutupi layar dan fleksibel).
-    Portofolio 100 Juta lama dihapus total, hanya menyisakan 4 tombol utama esensial.
-    """
     return {
         "keyboard": [
             [
@@ -114,8 +115,8 @@ def make_compact_reply_keyboard() -> dict:
                 {"text": "🚀 Radar Multi-Bagger"}
             ],
             [
-                {"text": "🏆 Tier List Whale"},
-                {"text": "🌐 Status Pasar IHSG"}
+                {"text": "⚡ Radar ARA Hunter"},
+                {"text": "💼 Portofolio Pribadi"}
             ]
         ],
         "resize_keyboard": True,
@@ -124,26 +125,22 @@ def make_compact_reply_keyboard() -> dict:
 
 
 def make_remove_reply_keyboard() -> dict:
-    """
-    Menghilangkan tombol keyboard bawah agar layar 100% bersih tanpa halangan sinyal.
-    """
     return {"remove_keyboard": True}
 
 
-# Alias untuk kompatibilitas pemanggilan lama
 make_persistent_reply_keyboard = make_compact_reply_keyboard
 
 
 def make_main_inline_menu() -> dict:
-    """
-    Menu tombol interaktif sekali klik di dalam chat Telegram.
-    Tampil rapi 2 kolom tanpa duplikasi tombol portofolio lama.
-    """
     return {
         "inline_keyboard": [
             [
                 {"text": "🔮 Prediksi Arah IHSG", "callback_data": "menu:prediksi"},
                 {"text": "🚀 Radar Multi-Bagger", "callback_data": "menu:multibagger"}
+            ],
+            [
+                {"text": "⚡ Radar ARA Hunter", "callback_data": "menu:arahunter"},
+                {"text": "💼 Portofolio Pantauan", "callback_data": "menu:watchlist"}
             ],
             [
                 {"text": "🏆 Tier List Whale", "callback_data": "menu:tierlist"},
@@ -158,11 +155,8 @@ def make_main_inline_menu() -> dict:
                 {"text": "📰 Rumor & Aksi Korporasi", "callback_data": "menu:insider"}
             ],
             [
-                {"text": "💎 Bedah Rumor BIPI", "callback_data": "rumor:BIPI"},
-                {"text": "💎 Bedah Modal PANI", "callback_data": "rumor:PANI"}
-            ],
-            [
-                {"text": "🧹 Bersihkan Layar (Tutup Tombol Bawah)", "callback_data": "menu:bersih"}
+                {"text": "📅 Laporan Harian Pasar", "callback_data": "menu:daily"},
+                {"text": "🧹 Bersihkan Layar", "callback_data": "menu:bersih"}
             ]
         ]
     }
@@ -758,9 +752,6 @@ def format_whale_scan_message(stocks: list, title_tag: str = "LQ45", limit: int 
 
 
 def handle_telegram_callback(callback_query: dict):
-    """
-    Menangani aksi klik tombol interaktif Telegram inline keyboard.
-    """
     cb_id = callback_query.get("id")
     if cb_id:
         answer_telegram_callback(cb_id)
@@ -844,6 +835,16 @@ def handle_telegram_callback(callback_query: dict):
             send_telegram_message("🔮 <i>Mendiagnosis Wall Street semalam, kurs Rupiah & teknikal IHSG...</i>", chat_id)
             pred = predict_daily_ihsg_direction()
             send_long_telegram_message(format_daily_prediction_message(pred), chat_id)
+        elif target == "arahunter":
+            send_telegram_message("⚡ <i>Memindai radar ARA Hunter & ledakan volume penutupan...</i>", chat_id)
+            picks = scan_ara_hunter_picks(limit=5)
+            send_long_telegram_message(format_ara_hunter_message(picks), chat_id)
+        elif target == "watchlist":
+            send_telegram_message("⏳ <i>Menghubungkan ke bursa untuk mengevaluasi portofolio Anda...</i>", chat_id)
+            eval_data = evaluate_user_portfolio(chat_id)
+            send_long_telegram_message(format_portfolio_message(eval_data), chat_id)
+        elif target == "daily":
+            handle_telegram_command("/daily", chat_id)
         elif target == "bersih":
             send_telegram_message(
                 "🧹 <b>Mode Layar Bersih Aktif!</b>\n\n"
@@ -893,10 +894,11 @@ def handle_telegram_callback(callback_query: dict):
 def handle_telegram_command(command_text: str, chat_id: str):
     raw_text = command_text.strip()
 
-    # Mapping tombol keyboard bawah Telegram agar user cukup klik tanpa ngetik
     BTN_MAP = {
         "🔮 Prediksi Arah IHSG": "/prediksi",
         "🚀 Radar Multi-Bagger": "/multibagger",
+        "⚡ Radar ARA Hunter": "/arahunter",
+        "💼 Portofolio Pribadi": "/watchlist",
         "🏆 Tier List Whale": "/tierlist",
         "🌐 Status Pasar IHSG": "/regime",
         "🐋 Top Whale LQ45": "/whalelist",
@@ -905,7 +907,7 @@ def handle_telegram_command(command_text: str, chat_id: str):
         "📰 Radar Aksi Korporasi": "/insider",
         "💰 Portofolio 100 Juta": "/simulasi100jt"
     }
-    # Keyword & tombol matching fleksibel (kebal variasi emoji/spasi)
+
     raw_lower = raw_text.lower()
     if raw_text in BTN_MAP:
         command_text = BTN_MAP[raw_text]
@@ -913,6 +915,12 @@ def handle_telegram_command(command_text: str, chat_id: str):
         command_text = "/bersih"
     elif "keyboard_on" in raw_lower or "buka tombol" in raw_lower or raw_lower == "keyboard":
         command_text = "/keyboard"
+    elif "ara hunter" in raw_lower or "calon ara" in raw_lower or raw_lower == "ara":
+        command_text = "/arahunter"
+    elif "watchlist" in raw_lower or "portofolioku" in raw_lower or "portofolio pribadi" in raw_lower:
+        command_text = "/watchlist"
+    elif "pantau " in raw_lower or raw_lower.startswith("/pantau"):
+        pass
     elif "prediksi" in raw_lower or "arah ihsg" in raw_lower or "besok" in raw_lower or "arah" in raw_lower:
         command_text = "/prediksi"
     elif "tier list" in raw_lower:
@@ -977,6 +985,66 @@ def handle_telegram_command(command_text: str, chat_id: str):
             reply_markup=make_compact_reply_keyboard()
         )
         return
+
+    elif cmd in ["/arahunter", "/ara"]:
+        send_telegram_message("⚡ <i>Memindai radar ARA Hunter &amp; ledakan volume penutupan bursa...</i>", chat_id)
+        picks = scan_ara_hunter_picks(limit=5)
+        send_long_telegram_message(format_ara_hunter_message(picks), chat_id)
+
+    elif cmd in ["/pantau", "/tambahpantau"]:
+        if len(parts) < 3:
+            send_telegram_message(
+                "💼 <b>CARA MENAMBAH SAHAM KE PANTAUAN PRIBADI</b>\n\n"
+                "Format: <code>/pantau KODE HARGA_BELI LOT</code>\n\n"
+                "<b>Contoh:</b>\n"
+                "• <code>/pantau BBCA 9800 20</code> (20 lot di harga Rp 9.800)\n"
+                "• <code>/pantau PANI 5200 50</code> (50 lot di harga Rp 5.200)\n"
+                "• <code>/pantau ASII 4900 15</code>\n\n"
+                "<i>Robot akan otomatis mengawal posisi TP1 (+30%), TP2 (+75%), dan batas Stop Loss (-6%) Anda!</i>",
+                chat_id
+            )
+            return
+
+        ticker = parts[1].upper()
+        try:
+            raw_p = parts[2].replace(",", "").replace(".", "").strip() if "." not in parts[2] else parts[2].replace(",", "").strip()
+            buy_price = float(raw_p)
+            lots = int(parts[3]) if len(parts) > 3 else 10
+        except Exception:
+            send_telegram_message("❌ Format angka tidak valid. Contoh: <code>/pantau BBCA 9800 20</code>", chat_id)
+            return
+
+        res = add_stock_to_portfolio(chat_id, ticker, buy_price, lots)
+        msg = (
+            f"✅ <b>BERHASIL MENAMBAHKAN #{ticker} KE PANTAUAN!</b> 💼\n"
+            "━━━━━━━━━━━━━━━━━━━\n"
+            f"💵 <b>Modal Beli:</b> <code>Rp{int(buy_price):,}</code> ({lots} Lot)\n"
+            f"💰 <b>Total Investasi:</b> <code>Rp{int(res['total_invested']):,}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━\n"
+            "🎯 <b>TARGET TRADING PLAN OTOMATIS:</b>\n"
+            f"• 🎯 <b>Target TP1 (+30%):</b> <code>Rp{int(res['tp1']):,}</code> <i>(Jual 35% lot &amp; geser SL ke BEP)</i>\n"
+            f"• 🚀 <b>Target TP2 (+75%):</b> <code>Rp{int(res['tp2']):,}</code> <i>(Kunci profit monster)</i>\n"
+            f"• 🛑 <b>Batas Cut Loss (-6%):</b> <code>Rp{int(res['sl']):,}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━\n"
+            "💡 <i>Ketik <code>/watchlist</code> kapan saja untuk melihat evaluasi real-time portofolio Anda.</i>"
+        )
+        send_telegram_message(msg, chat_id)
+
+    elif cmd in ["/watchlist", "/portofolioku", "/pantauan"]:
+        send_telegram_message("⏳ <i>Menghubungkan ke bursa untuk mengevaluasi portofolio Anda...</i>", chat_id)
+        eval_data = evaluate_user_portfolio(chat_id)
+        send_long_telegram_message(format_portfolio_message(eval_data), chat_id)
+
+    elif cmd in ["/hapuspantau", "/unpantau", "/delpantau"]:
+        if len(parts) < 2:
+            send_telegram_message("⚠️ Format: <code>/hapuspantau KODE</code>\nContoh: <code>/hapuspantau BBCA</code>", chat_id)
+            return
+        ticker = parts[1].upper()
+        ok = remove_stock_from_portfolio(chat_id, ticker)
+        if ok:
+            send_telegram_message(f"🗑️ <b>#{ticker} berhasil dihapus dari pantauan portofolio.</b>", chat_id)
+        else:
+            send_telegram_message(f"⚠️ #{ticker} tidak ditemukan di daftar pantauan Anda.", chat_id)
 
     elif cmd in ["/hedge", "/hedgefund", "/wyckoff"]:
         if len(parts) > 1:
@@ -1195,13 +1263,26 @@ def handle_telegram_command(command_text: str, chat_id: str):
         send_long_telegram_message("\n".join(lines), chat_id)
 
     elif cmd in ["/daily"]:
-        send_telegram_message("⏳ <i>Menyiapkan laporan harian pasar &amp; radar Hedge Fund...</i>", chat_id)
+        send_telegram_message("⏳ <i>Menyiapkan laporan harian komprehensif pasar...</i>", chat_id)
         ihsg = analyze_ihsg()
-        send_long_telegram_message(format_ihsg_message(ihsg), chat_id)
-        hedge_picks = scan_hedgefund_picks(limit=5)
-        send_long_telegram_message(format_hedgefund_scan_message(hedge_picks), chat_id)
+        pred = predict_daily_ihsg_direction()
+        ara_picks = scan_ara_hunter_picks(limit=3)
+        hedge_picks = scan_hedgefund_picks(limit=4)
         stocks = scan_whale_watchlist(LQ45_WATCHLIST)
-        send_long_telegram_message(format_whale_scan_message(stocks, title_tag="LQ45", limit=5), chat_id)
+        port_brief = format_portfolio_daily_brief(chat_id)
+
+        msg_parts = [
+            "📅 <b>LAPORAN HARIAN KOMPREHENSIF PASAR (IHSG RADAR)</b> 📊\n",
+            format_ihsg_message(ihsg) + "\n",
+            format_daily_prediction_message(pred) + "\n",
+            format_ara_hunter_message(ara_picks) + "\n",
+            format_hedgefund_scan_message(hedge_picks) + "\n",
+            format_whale_scan_message(stocks, title_tag="LQ45 WHALE MOMENTUM", limit=4)
+        ]
+        if port_brief:
+            msg_parts.append("\n━━━━━━━━━━━━━━━━━━━\n" + port_brief)
+
+        send_long_telegram_message("\n".join(msg_parts), chat_id)
 
     else:
         raw = cmd.replace("/", "").upper()
@@ -1282,17 +1363,24 @@ def scheduled_worker():
             if now_str == SCHEDULED_ALERTS.get("market_closing", "16:15") and already_sent["closing"] != today_str:
                 if TELEGRAM_CHAT_ID:
                     ihsg = analyze_ihsg()
+                    ara_picks = scan_ara_hunter_picks(limit=3)
                     hedge_picks = scan_hedgefund_picks(limit=4)
                     top_whales = scan_top_whale_accumulations(limit=3)
                     stocks = scan_whale_watchlist(LQ45_WATCHLIST)
-                    msg = (
-                        "🌇 <b>POST-MARKET CLOSING &amp; WHALE REPORT (16:15 WIB)</b>\n\n"
-                        + format_ihsg_message(ihsg) + "\n\n"
-                        + format_top_whale_scan_message(top_whales, title_tag="CLOSING WHALE ACCUMULATION") + "\n\n"
-                        + format_hedgefund_scan_message(hedge_picks) + "\n\n"
-                        + format_whale_scan_message(stocks, title_tag="LQ45 CLOSING WHALE", limit=4)
-                    )
-                    send_long_telegram_message(msg)
+                    port_brief = format_portfolio_daily_brief(TELEGRAM_CHAT_ID)
+
+                    msg_parts = [
+                        "🌇 <b>POST-MARKET CLOSING &amp; WHALE REPORT (16:15 WIB)</b>\n",
+                        format_ihsg_message(ihsg) + "\n",
+                        format_ara_hunter_message(ara_picks) + "\n",
+                        format_top_whale_scan_message(top_whales, title_tag="CLOSING WHALE ACCUMULATION") + "\n",
+                        format_hedgefund_scan_message(hedge_picks) + "\n",
+                        format_whale_scan_message(stocks, title_tag="LQ45 CLOSING WHALE", limit=4)
+                    ]
+                    if port_brief:
+                        msg_parts.append("\n━━━━━━━━━━━━━━━━━━━\n" + port_brief)
+
+                    send_long_telegram_message("\n".join(msg_parts))
                     already_sent["closing"] = today_str
 
             time.sleep(30)
