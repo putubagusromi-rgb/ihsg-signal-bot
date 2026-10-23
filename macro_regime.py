@@ -87,3 +87,28 @@ def get_ihsg_market_regime() -> Dict[str, Any]:
 
     except Exception as e:
         return {"error": str(e)}
+
+
+def calculate_position_sizing(total_capital: float, stock_price: float, max_alloc_pct: float = 0.25) -> Dict[str, Any]:
+    """
+    Menghitung rekomendasi alokasi modal dan jumlah lot trading:
+    Contoh Modal Rp 100.000.000 dengan alokasi 25% (Rp 25.000.000)
+    """
+    if stock_price <= 0:
+        return {"error": "Harga saham tidak valid."}
+
+    max_capital = total_capital * max_alloc_pct
+    price_per_lot = stock_price * 100
+    lots = int(max_capital // price_per_lot)
+    actual_spent = lots * price_per_lot
+
+    return {
+        "total_capital": total_capital,
+        "max_alloc_capital": max_capital,
+        "stock_price": stock_price,
+        "price_per_lot": price_per_lot,
+        "lots": lots,
+        "shares": lots * 100,
+        "total_cost": actual_spent,
+        "remaining_cash": total_capital - actual_spent
+    }
