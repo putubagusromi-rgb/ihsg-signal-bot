@@ -555,6 +555,7 @@ def format_whale_tier_list_message(tiers: dict) -> str:
     lines.append("💡 <b>Rekomendasi Trading:</b>")
     lines.append("👉 Prioritaskan entry pada saham <b>Tier S</b> dan <b>Tier A</b> yang bertanda 💎 <i>Diskon Bandar</i> untuk Risk/Reward Ratio maksimal.")
     lines.append("👉 Ketik <code>/whale KODE</code> (misal: <code>/whale MDKA</code>) untuk melihat diagnosa detail.")
+
     return "\n".join(lines)
 
 
@@ -589,10 +590,11 @@ def format_multibagger_detail_message(data: dict) -> str:
         "━━━━━━━━━━━━━━━━━━━",
         f"📖 <b>DIAGNOSA AKSI BANDAR:</b>\n<i>{data['verdict']}</i>",
         "",
-        f"🎯 <b>RENCANA EKSEKUSI:</b>\n<i>{data['action']}</i>\n",
-        f"• 🎯 <b>Target Mark-Up 1:</b> <code>Rp{int(data['tp1']):,}</code>",
-        f"• 🚀 <b>Target Mark-Up 2:</b> <code>Rp{int(data['tp2']):,}</code>",
-        f"• 🛑 <b>Stop Loss Ketat:</b> <code>Rp{int(data['sl']):,}</code>",
+        f"🎯 <b>RENCANA EKSEKUSI MENGIKUTI BANDAR:</b>\n<i>{data['action']}</i>\n",
+        f"• 🎯 <b>Target TP-1 (+30%):</b> <code>Rp{int(data['tp1']):,}</code> <i>(Jual 35% lot &amp; geser SL ke BEP)</i>",
+        f"• 🚀 <b>Target TP-2 (+75%):</b> <code>Rp{int(data['tp2']):,}</code> <i>(Jual 35% lot kunci profit 1 bagger)</i>",
+        f"• 💎 <b>Runner Lot (30% Sisa):</b> <i>Dibiarkan terbang ikuti mark-up bandar</i>",
+        f"• 🛑 <b>Stop Loss Ketat (-6%):</b> <code>Rp{int(data['sl']):,}</code>",
         "━━━━━━━━━━━━━━━━━━━",
         f"💡 <i>Tip: Masuk saat fase Akumulasi Senyap sebelum berita resmi menjadi euforia publik!</i>"
     ])
@@ -651,27 +653,33 @@ def format_ihsg_regime_message(data: dict) -> str:
 
 def format_simulasi_100m_message() -> str:
     return (
-        "💰 <b>HASIL REAL BACKTEST PORTOFOLIO RP 100 JUTA (2024 - 2026)</b> 📊\n"
-        "<i>Strategi: Akumulasi Smart Money / Whale + Proteksi Crash IHSG</i>\n"
+        "💰 <b>HASIL REAL BACKTEST MENGIKUTI BANDAR (2024 - 2026)</b> 📊\n"
+        "<i>Strategi: Akumulasi Smart Money + Target Bertahap (TP1 +30%, TP2 +75%, Runner)</i>\n"
         "━━━━━━━━━━━━━━━━━━━\n"
         "💵 <b>Modal Awal:</b> <code>Rp 100.000.000</code>\n"
-        "💎 <b>Modal Akhir:</b> <code>Rp 135.688.413</code>\n"
-        "🚀 <b>Net Profit Bersih:</b> <b>+Rp 35.688.413 (+35.7%)</b>\n"
-        "📈 <b>Profit Factor:</b> <code>1.78</code> (Keuntungan vs Kerugian)\n"
+        "💎 <b>Modal Akhir:</b> <code>Rp 150.173.667</code>\n"
+        "🚀 <b>Net Profit Bersih:</b> <b>+Rp 50.173.667 (+50.2%)</b>\n"
+        "📈 <b>Profit Factor:</b> <code>1.47</code> (Rasio Cuan vs Rugi > 5:1)\n"
         "━━━━━━━━━━━━━━━━━━━\n"
-        "🏆 <b>CONTOH TRADE RUNNER MULTI-BAGGER:</b>\n"
-        "• <b>#MEDC</b> (285 lot): Masuk Rp874 ➔ Keluar Rp1.357 | <b>+Rp 13,62 Juta (+54.6%)</b>\n"
-        "• <b>#MDKA</b> (115 lot): Masuk Rp2.159 ➔ Keluar Rp3.194 | <b>+Rp 11,77 Juta (+47.3%)</b>\n"
-        "• <b>#ASII</b> (64 lot): Masuk Rp3.889 ➔ Keluar Rp5.735 | <b>+Rp 11,68 Juta (+46.8%)</b>\n"
-        "• <b>#PANI</b> (48 lot): Masuk Rp5.119 ➔ Keluar Rp6.992 | <b>+Rp 8,86 Juta (+36.0%)</b>\n"
-        "• <b>#TPIA</b> (58 lot): Masuk Rp4.237 ➔ Keluar Rp5.446 | <b>+Rp 6,89 Juta (+28.0%)</b>\n"
-        "• <b>#BIPI</b> (3.048 lot): Masuk Rp82 ➔ Keluar Rp99 | <b>+Rp 5,06 Juta (+20.2%)</b>\n"
+        "🎯 <b>CARA MENGIKUTI TARGET TP BANDAR:</b>\n"
+        "1️⃣ <b>TP-1 (+30%):</b> Jual 35% lot untuk balik modal dasar &amp; pasang Stop Loss di BEP (Risk-Free!).\n"
+        "2️⃣ <b>TP-2 (+75%):</b> Jual 35% lot lagi saat harga meledak mendekati 1 Bagger.\n"
+        "3️⃣ <b>Runner Lot (30% Sisa):</b> Dibiarkan terbang mengikuti mark-up bandar sampai ada sinyal distribusi!\n"
         "━━━━━━━━━━━━━━━━━━━\n"
-        "🛡️ <b>DISIPLIN PROTEKSI SAAT IHSG TURUN:</b>\n"
-        "• Setiap posisi rugi dipotong ketat di <b>-6.0%</b> (rugi cuma ~Rp 1,5 Juta per saham, aman!).\n"
-        "• Saat IHSG anjlok &gt;1.2% (Panic Crash), bot membekukan pembelian (Cash is King).\n"
+        "🏆 <b>CONTOH TRADE MONSTER MULTI-BAGGER:</b>\n"
+        "• <b>#PANI</b>: Masuk Rp5.119 ➔ Keluar Rp10.588 | <b>+Rp 16,11 Juta (+106.8%)</b>\n"
+        "• <b>#MDKA</b>: Masuk Rp2.159 ➔ Keluar Rp3.194 | <b>+Rp 12,80 Juta (+47.9%)</b>\n"
+        "• <b>#ASII</b>: Masuk Rp3.889 ➔ Keluar Rp6.807 | <b>+Rp 8,10 Juta (+75.0%)</b>\n"
+        "• <b>#MEDC</b>: Masuk Rp874 ➔ Keluar Rp1.257 | <b>+Rp 8,09 Juta (+43.7%)</b>\n"
+        "• <b>#TPIA</b>: Masuk Rp5.182 ➔ Keluar Rp6.228 | <b>+Rp 7,57 Juta (+20.2%)</b>\n"
+        "• <b>#BREN</b>: Masuk Rp4.644 ➔ Keluar Rp5.967 | <b>+Rp 6,76 Juta (+28.5%)</b>\n"
+        "• <b>#BIPI</b>: Masuk Rp85 ➔ Keluar Rp99 (4.513 lot!) | <b>+Rp 6,15 Juta (+16.5%)</b>\n"
         "━━━━━━━━━━━━━━━━━━━\n"
-        "💡 <i>Gunakan perintah <code>/regime</code> untuk cek kondisi risiko IHSG hari ini atau <code>/calc [KODE] 100jt</code> untuk hitung lot trading Anda!</i>"
+        "🛡️ <b>DISIPLIN PROTEKSI SAAT SALAH:</b>\n"
+        "• Kerugian dibatasi ketat di <b>-6.0%</b> (rugi cuma ~Rp 1,5 Juta per saham).\n"
+        "• Tetapi saat menang di saham bandar, cuan mencapai <b>Rp 8 Juta s/d Rp 16 Juta</b>!\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "💡 <i>Gunakan tombol menu di bawah untuk memindai saham yang sedang diakumulasi bandar hari ini!</i>"
     )
 
 
@@ -836,7 +844,25 @@ def handle_telegram_command(command_text: str, chat_id: str):
         "🔄 Rotasi Sektor": "/sektor",
         "📰 Radar Aksi Korporasi": "/insider"
     }
-    if raw_text in BTN_MAP:
+    # Keyword & tombol matching fleksibel (kebal variasi emoji/spasi)
+    raw_lower = raw_text.lower()
+    if "tier list" in raw_lower:
+        command_text = "/tierlist"
+    elif "multi-bagger" in raw_lower or "multibagger" in raw_lower:
+        command_text = "/multibagger"
+    elif "status pasar" in raw_lower or "kesehatan ihsg" in raw_lower or "regime" in raw_lower:
+        command_text = "/regime"
+    elif "portofolio" in raw_lower or "100 juta" in raw_lower or "simulasi" in raw_lower:
+        command_text = "/simulasi100jt"
+    elif "top whale" in raw_lower:
+        command_text = "/whalelist"
+    elif "wyckoff" in raw_lower or "hedge fund" in raw_lower:
+        command_text = "/hedge"
+    elif "rotasi sektor" in raw_lower or "sektor" in raw_lower:
+        command_text = "/sektor"
+    elif "aksi korporasi" in raw_lower or "radar aksi" in raw_lower:
+        command_text = "/insider"
+    elif raw_text in BTN_MAP:
         command_text = BTN_MAP[raw_text]
 
     parts = command_text.strip().split()
