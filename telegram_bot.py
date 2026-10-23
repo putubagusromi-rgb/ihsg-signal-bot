@@ -40,6 +40,7 @@ from hedgefund_radar import analyze_hedgefund_wyckoff, scan_hedgefund_picks
 from whale_radar import analyze_whale_footprint, scan_top_whale_accumulations, get_whale_tier_list
 from multibagger_radar import analyze_multibagger_rumor, scan_top_multibagger_picks
 from macro_regime import get_ihsg_market_regime
+from daily_prediction import predict_daily_ihsg_direction
 
 esc = html.escape
 _command_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="cmd")
@@ -78,20 +79,20 @@ def make_persistent_reply_keyboard() -> dict:
     return {
         "keyboard": [
             [
-                {"text": "🚀 Radar Multi-Bagger"},
-                {"text": "🏆 Tier List Whale"}
+                {"text": "🔮 Prediksi Arah IHSG"},
+                {"text": "🚀 Radar Multi-Bagger"}
             ],
             [
-                {"text": "🌐 Status Pasar IHSG"},
+                {"text": "🏆 Tier List Whale"},
                 {"text": "💰 Portofolio 100 Juta"}
             ],
             [
-                {"text": "🐋 Top Whale LQ45"},
-                {"text": "🏛️ Wyckoff Hedge Fund"}
+                {"text": "🌐 Status Pasar IHSG"},
+                {"text": "🐋 Top Whale LQ45"}
             ],
             [
-                {"text": "🔄 Rotasi Sektor"},
-                {"text": "📰 Radar Aksi Korporasi"}
+                {"text": "🏛️ Wyckoff Hedge Fund"},
+                {"text": "🔄 Rotasi Sektor"}
             ]
         ],
         "resize_keyboard": True,
@@ -106,20 +107,20 @@ def make_main_inline_menu() -> dict:
     return {
         "inline_keyboard": [
             [
-                {"text": "🚀 Radar Multi-Bagger", "callback_data": "menu:multibagger"},
-                {"text": "🏆 Tier List Whale", "callback_data": "menu:tierlist"}
+                {"text": "🔮 Prediksi Arah IHSG", "callback_data": "menu:prediksi"},
+                {"text": "🚀 Radar Multi-Bagger", "callback_data": "menu:multibagger"}
             ],
             [
-                {"text": "🌐 Status Kesehatan IHSG", "callback_data": "menu:regime"},
-                {"text": "💰 Portofolio 100 Juta", "callback_data": "menu:simulasi100jt"}
+                {"text": "🏆 Tier List Whale", "callback_data": "menu:tierlist"},
+                {"text": "🌐 Status Pasar IHSG", "callback_data": "menu:regime"}
             ],
             [
-                {"text": "🐋 Top Whale LQ45", "callback_data": "menu:whalelist"},
-                {"text": "🏛️ Wyckoff Spring", "callback_data": "menu:hedge"}
+                {"text": "💰 Portofolio 100 Juta", "callback_data": "menu:simulasi100jt"},
+                {"text": "🐋 Top Whale LQ45", "callback_data": "menu:whalelist"}
             ],
             [
-                {"text": "🔄 Rotasi Sektor", "callback_data": "menu:sektor"},
-                {"text": "📰 Rumor & Aksi Korporasi", "callback_data": "menu:insider"}
+                {"text": "🏛️ Wyckoff Spring", "callback_data": "menu:hedge"},
+                {"text": "🔄 Rotasi Sektor", "callback_data": "menu:sektor"}
             ],
             [
                 {"text": "💎 Bedah Rumor BIPI", "callback_data": "rumor:BIPI"},
@@ -205,9 +206,6 @@ def send_long_telegram_message(text: str, chat_id: str = None, parse_mode: str =
 
 
 def answer_telegram_callback(callback_query_id: str):
-    """
-    Menjawab callback query agar ikon loading di tombol Telegram berhenti.
-    """
     token = TELEGRAM_BOT_TOKEN
     if not token:
         return
@@ -238,6 +236,30 @@ def format_ihsg_message(data: dict) -> str:
         f"━━━━━━━━━━━━━━━━━━━\n"
         f"💡 <b>Strategi:</b>\n"
         f"👉 <b>{esc(str(data['recommendation']))}</b>"
+    )
+
+
+def format_daily_prediction_message(data: dict) -> str:
+    if "error" in data:
+        return f"❌ <b>Error:</b> {esc(str(data['error']))}"
+
+    factors_str = "\n".join([f"• {f}" for f in data.get("factors", [])])
+    return (
+        "🔮 <b>PREDIKSI HARIAN ARAH IHSG (AI DAILY FORECAST)</b> 📊\n"
+        "<i>Berdasarkan Model 4 Hybrid (Wall Street + Kurs Rupiah + RSI Ekstrem + EMA)</i>\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        f"🎯 <b>Arah Prediksi:</b> <b>{data['direction']}</b>\n"
+        f"📊 <b>Tingkat Keyakinan (Confidence):</b> <code>{data['confidence']}%</code>\n"
+        f"⚡ <b>Skor Komposit:</b> <code>{data['score']:+d}</code> (-100 s/d +100)\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        f"💵 <b>Level IHSG Terakhir:</b> <code>{data['ihsg_current']:,.2f}</code> ({data['ihsg_last_chg']:+.2f}%)\n"
+        f"🛡️ <b>Estimasi Support Harian:</b> <code>{data['support']:,.2f}</code>\n"
+        f"🚀 <b>Estimasi Resistance Harian:</b> <code>{data['resistance']:,.2f}</code>\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "🔍 <b>4 FAKTOR PENENTU HARI INI:</b>\n"
+        f"{factors_str}\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        f"💡 <b>PANDUAN AKSI TRADING:</b>\n<i>{data['guidance']}</i>"
     )
 
 
@@ -368,7 +390,7 @@ def format_flow_message(data: dict) -> str:
 
     return (
         f"🌊 <b>ORDER FLOW &amp; WHALE FOOTPRINT: #{data['ticker']}</b>\n"
-        f"📅 <i>Tanggal: {data['date']} | Harga: Rp{int(data['close']):,} ({chg_sym}{data['pct_change']:.2f}%)</i>\n"
+        f"📅 <i>Tanggal: {data['date']} | Harga: Rp{int(data['close']):,} ({chg_sym}{data['pct_change']:.2f}%)\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
         f"⚖️ <b>TEKANAN VOLUME &amp; MONEY FLOW:</b>\n"
         f"• Arah Arus Uang: <b>{domination}</b>\n"
@@ -713,9 +735,6 @@ def format_whale_scan_message(stocks: list, title_tag: str = "LQ45", limit: int 
 
 
 def handle_telegram_callback(callback_query: dict):
-    """
-    Menangani aksi klik tombol interaktif Telegram inline keyboard.
-    """
     cb_id = callback_query.get("id")
     if cb_id:
         answer_telegram_callback(cb_id)
@@ -795,7 +814,11 @@ def handle_telegram_callback(callback_query: dict):
 
     elif action == "menu":
         target = ticker.lower()
-        if target == "multibagger":
+        if target == "prediksi":
+            send_telegram_message("🔮 <i>Menganalisis Wall Street semalam, kurs Rupiah &amp; teknikal IHSG...</i>", chat_id)
+            pred = predict_daily_ihsg_direction()
+            send_long_telegram_message(format_daily_prediction_message(pred), chat_id)
+        elif target == "multibagger":
             send_telegram_message("🚀 <i>Memindai saham potensi Multi-Bagger (Rumor Aksi Korporasi + Akumulasi)...</i>", chat_id)
             picks = scan_top_multibagger_picks(limit=6)
             send_long_telegram_message(format_multibagger_scan_message(picks), chat_id)
@@ -833,8 +856,8 @@ def handle_telegram_callback(callback_query: dict):
 def handle_telegram_command(command_text: str, chat_id: str):
     raw_text = command_text.strip()
 
-    # Mapping tombol keyboard bawah Telegram agar user cukup klik tanpa ngetik
     BTN_MAP = {
+        "🔮 Prediksi Arah IHSG": "/prediksi",
         "🚀 Radar Multi-Bagger": "/multibagger",
         "🏆 Tier List Whale": "/tierlist",
         "🌐 Status Pasar IHSG": "/regime",
@@ -844,9 +867,11 @@ def handle_telegram_command(command_text: str, chat_id: str):
         "🔄 Rotasi Sektor": "/sektor",
         "📰 Radar Aksi Korporasi": "/insider"
     }
-    # Keyword & tombol matching fleksibel (kebal variasi emoji/spasi)
+
     raw_lower = raw_text.lower()
-    if "tier list" in raw_lower:
+    if "prediksi" in raw_lower or "arah ihsg" in raw_lower or "besok" in raw_lower or "arah" in raw_lower:
+        command_text = "/prediksi"
+    elif "tier list" in raw_lower:
         command_text = "/tierlist"
     elif "multi-bagger" in raw_lower or "multibagger" in raw_lower:
         command_text = "/multibagger"
@@ -880,6 +905,11 @@ def handle_telegram_command(command_text: str, chat_id: str):
         send_telegram_message(help_msg, chat_id, reply_markup=make_persistent_reply_keyboard())
         send_telegram_message("⚡ <b>PILIHAN MENU CEPAT (KLIK LANGSUNG):</b>", chat_id, reply_markup=make_main_inline_menu())
         return
+
+    elif cmd in ["/prediksi", "/arah", "/forecast", "/besok"]:
+        send_telegram_message("🔮 <i>Menganalisis Wall Street semalam, kurs Rupiah &amp; teknikal IHSG...</i>", chat_id)
+        pred = predict_daily_ihsg_direction()
+        send_long_telegram_message(format_daily_prediction_message(pred), chat_id)
 
     elif cmd in ["/hedge", "/hedgefund", "/wyckoff"]:
         if len(parts) > 1:
@@ -1161,13 +1191,11 @@ def start_bot_polling():
                 for update in data.get("result", []):
                     offset = update["update_id"] + 1
 
-                    # 1. Tangani Klik Tombol Interaktif (Callback Query)
                     if "callback_query" in update:
                         cb = update["callback_query"]
                         _command_executor.submit(handle_telegram_callback, cb)
                         continue
 
-                    # 2. Tangani Pesan Teks Perintah Biasa
                     msg = update.get("message")
                     if not msg or "text" not in msg:
                         continue
@@ -1195,6 +1223,7 @@ def scheduled_worker():
             # Morning Brief (08:30 WIB - 30 Menit Sebelum Buka)
             if now_str == SCHEDULED_ALERTS.get("morning_brief", "08:30") and already_sent["morning"] != today_str:
                 if TELEGRAM_CHAT_ID:
+                    pred = predict_daily_ihsg_direction()
                     ihsg = analyze_ihsg()
                     hedge_picks = scan_hedgefund_picks(limit=4)
                     top_whales = scan_top_whale_accumulations(limit=3)
@@ -1202,6 +1231,7 @@ def scheduled_worker():
                     msg = (
                         "🌅 <b>MORNING MARKET RADAR &amp; WHALE REPORT (08:30 WIB)</b>\n"
                         "<i>30 Menit Menuju Pembukaan Sesi 1 IHSG!</i>\n\n"
+                        + format_daily_prediction_message(pred) + "\n\n"
                         + format_ihsg_message(ihsg) + "\n\n"
                         + format_top_whale_scan_message(top_whales, title_tag="TOP WHALE ACCUMULATION") + "\n\n"
                         + format_hedgefund_scan_message(hedge_picks) + "\n\n"
