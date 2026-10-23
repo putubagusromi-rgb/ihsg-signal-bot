@@ -221,10 +221,11 @@ def send_telegram_photo(photo_bytes: bytes, caption: str = "", chat_id: str = No
         return True
 
     url = f"https://api.telegram.org/bot{token}/sendPhoto"
+    safe_caption = caption[:900] if len(caption) > 900 else caption
     files = {"photo": ("chart.png", photo_bytes, "image/png")}
     data = {
         "chat_id": target_chat,
-        "caption": caption[:1024],
+        "caption": safe_caption,
         "parse_mode": "HTML"
     }
     if reply_markup:
@@ -233,7 +234,21 @@ def send_telegram_photo(photo_bytes: bytes, caption: str = "", chat_id: str = No
 
     try:
         resp = requests.post(url, data=data, files=files, timeout=25)
-        return resp.status_code == 200
+        if resp.status_code == 200:
+            return True
+        else:
+            # Fallback 1: Coba kirim tanpa parse_mode (bila ada tag HTML terpotong)
+            data.pop("parse_mode", None)
+            files["photo"] = ("chart.png", photo_bytes, "image/png")
+            resp2 = requests.post(url, data=data, files=files, timeout=25)
+            if resp2.status_code == 200:
+                return True
+
+            # Fallback 2: Coba kirim foto tanpa caption sama sekali
+            data.pop("caption", None)
+            files["photo"] = ("chart.png", photo_bytes, "image/png")
+            resp3 = requests.post(url, data=data, files=files, timeout=25)
+            return resp3.status_code == 200
     except Exception as e:
         print(f"[Telegram Photo Error] {e}")
         return False
@@ -1073,14 +1088,16 @@ def _handle_telegram_command_impl(command_text: str, chat_id: str):
         picks = get_daily_top3_picks()
         pick_img = generate_stock_pick_image(picks)
         pick_cap = format_daily_stock_pick_caption(picks)
-        send_telegram_photo(pick_img, caption=pick_cap, chat_id=chat_id)
+        send_telegram_photo(pick_img, caption="📋 <b>DAILY STOCK PICK HARI INI</b> (3 Saham Pilihan)", chat_id=chat_id)
+        send_long_telegram_message(pick_cap, chat_id=chat_id)
 
     elif cmd in ["/result", "/dailyresult", "/hasil", "/evaluasi"]:
         send_telegram_message("⏳ <i>Mengevaluasi hasil pergerakan harga 3 saham pilihan hari ini...</i>", chat_id)
         eval_data = evaluate_daily_result()
         res_img = generate_daily_result_image(eval_data)
         res_cap = format_daily_result_caption(eval_data)
-        send_telegram_photo(res_img, caption=res_cap, chat_id=chat_id)
+        send_telegram_photo(res_img, caption="🏆 <b>DAILY RESULT HARI INI</b> (Evaluasi Penutupan)", chat_id=chat_id)
+        send_long_telegram_message(res_cap, chat_id=chat_id)
 
     elif cmd in ["/arahunter", "/ara"]:
         send_telegram_message("⚡ <i>Memindai radar ARA Hunter &amp; ledakan volume penutupan bursa...</i>", chat_id)
@@ -1436,7 +1453,8 @@ def scheduled_worker():
                         picks = get_daily_top3_picks(force_refresh=True)
                         pick_img = generate_stock_pick_image(picks)
                         pick_cap = format_daily_stock_pick_caption(picks)
-                        send_telegram_photo(pick_img, caption=pick_cap)
+                        send_telegram_photo(pick_img, caption="📋 <b>DAILY STOCK PICK HARI INI</b> (08:30 WIB)")
+                        send_long_telegram_message(pick_cap)
 
                         # 2. Kirim Analisa Kondisi Pasar
                         ihsg = analyze_ihsg()
@@ -1464,7 +1482,8 @@ def scheduled_worker():
                         eval_data = evaluate_daily_result()
                         res_img = generate_daily_result_image(eval_data)
                         res_cap = format_daily_result_caption(eval_data)
-                        send_telegram_photo(res_img, caption=res_cap)
+                        send_telegram_photo(res_img, caption="🏆 <b>DAILY RESULT HARI INI</b> (16:15 WIB)")
+                        send_long_telegram_message(res_cap)
 
                         # 2. Kirim Laporan Penutupan Pasar & Portofolio
                         ihsg = analyze_ihsg()
