@@ -47,6 +47,9 @@ _command_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="cmd")
 
 
 def make_stock_inline_keyboard(ticker: str) -> dict:
+    """
+    Membuat tombol interaktif Telegram sekali klik untuk saham tertentu.
+    """
     t = ticker.replace(".JK", "").strip().upper()
     return {
         "inline_keyboard": [
@@ -69,7 +72,41 @@ def make_stock_inline_keyboard(ticker: str) -> dict:
     }
 
 
-def make_persistent_reply_keyboard() -> dict:
+def setup_bot_commands() -> bool:
+    """
+    Mendaftarkan menu perintah bot ke Telegram API agar muncul sebagai tombol [Menu]
+    di pojok kiri bawah kolom ketik tanpa memakan ruang layar obrolan sama sekali.
+    """
+    token = TELEGRAM_BOT_TOKEN
+    if not token or token == "YOUR_TELEGRAM_BOT_TOKEN_HERE":
+        return False
+    url = f"https://api.telegram.org/bot{token}/setMyCommands"
+    commands = [
+        {"command": "prediksi", "description": "🔮 Prediksi Arah IHSG Besok (AI Sniper)"},
+        {"command": "multibagger", "description": "🚀 Radar Saham Potensi Multi-Bagger"},
+        {"command": "tierlist", "description": "🏆 Tier List Akumulasi Whale LQ45"},
+        {"command": "regime", "description": "🌐 Status Kesehatan Pasar IHSG"},
+        {"command": "whalelist", "description": "🐋 Top Whale Accumulation"},
+        {"command": "hedge", "description": "🏛️ Wyckoff Silent Absorption"},
+        {"command": "sektor", "description": "🔄 Rotasi Sektor IDX"},
+        {"command": "insider", "description": "📰 Keterbukaan Informasi & Rumor"},
+        {"command": "bersih", "description": "🧹 Mode Bersih (Tutup Tombol Bawah)"},
+        {"command": "keyboard", "description": "⌨️ Tampilkan Tombol Menu Bawah (Ramping)"},
+        {"command": "menu", "description": "📱 Buka Menu Navigasi Utama"}
+    ]
+    try:
+        resp = requests.post(url, json={"commands": commands}, timeout=10)
+        return resp.status_code == 200
+    except Exception as e:
+        print(f"[ERROR setMyCommands] {e}")
+        return False
+
+
+def make_compact_reply_keyboard() -> dict:
+    """
+    Keyboard menu tombol ramping 2 baris (tidak menutupi layar dan fleksibel).
+    Portofolio 100 Juta lama dihapus total, hanya menyisakan 4 tombol utama esensial.
+    """
     return {
         "keyboard": [
             [
@@ -78,23 +115,30 @@ def make_persistent_reply_keyboard() -> dict:
             ],
             [
                 {"text": "🏆 Tier List Whale"},
-                {"text": "💰 Portofolio 100 Juta"}
-            ],
-            [
-                {"text": "🌐 Status Pasar IHSG"},
-                {"text": "🐋 Top Whale LQ45"}
-            ],
-            [
-                {"text": "🏛️ Wyckoff Hedge Fund"},
-                {"text": "🔄 Rotasi Sektor"}
+                {"text": "🌐 Status Pasar IHSG"}
             ]
         ],
         "resize_keyboard": True,
-        "is_persistent": True
+        "is_persistent": False
     }
 
 
+def make_remove_reply_keyboard() -> dict:
+    """
+    Menghilangkan tombol keyboard bawah agar layar 100% bersih tanpa halangan sinyal.
+    """
+    return {"remove_keyboard": True}
+
+
+# Alias untuk kompatibilitas pemanggilan lama
+make_persistent_reply_keyboard = make_compact_reply_keyboard
+
+
 def make_main_inline_menu() -> dict:
+    """
+    Menu tombol interaktif sekali klik di dalam chat Telegram.
+    Tampil rapi 2 kolom tanpa duplikasi tombol portofolio lama.
+    """
     return {
         "inline_keyboard": [
             [
@@ -106,16 +150,19 @@ def make_main_inline_menu() -> dict:
                 {"text": "🌐 Status Pasar IHSG", "callback_data": "menu:regime"}
             ],
             [
-                {"text": "💰 Portofolio 100 Juta", "callback_data": "menu:simulasi100jt"},
-                {"text": "🐋 Top Whale LQ45", "callback_data": "menu:whalelist"}
+                {"text": "🐋 Top Whale LQ45", "callback_data": "menu:whalelist"},
+                {"text": "🏛️ Wyckoff Spring", "callback_data": "menu:hedge"}
             ],
             [
-                {"text": "🏛️ Wyckoff Spring", "callback_data": "menu:hedge"},
-                {"text": "🔄 Rotasi Sektor", "callback_data": "menu:sektor"}
+                {"text": "🔄 Rotasi Sektor", "callback_data": "menu:sektor"},
+                {"text": "📰 Rumor & Aksi Korporasi", "callback_data": "menu:insider"}
             ],
             [
                 {"text": "💎 Bedah Rumor BIPI", "callback_data": "rumor:BIPI"},
                 {"text": "💎 Bedah Modal PANI", "callback_data": "rumor:PANI"}
+            ],
+            [
+                {"text": "🧹 Bersihkan Layar (Tutup Tombol Bawah)", "callback_data": "menu:bersih"}
             ]
         ]
     }
@@ -165,34 +212,40 @@ def send_telegram_photo(photo_buf: io.BytesIO, caption: str = "", chat_id: str =
     }
 
     try:
-        resp = requests.post(url, data=data, files=files, timeout=30)
+        resp = requests.post(url, data=data, files=files, timeout=20)
         return resp.status_code == 200
     except Exception as e:
-        print(f"[ERROR sendPhoto] {e}")
+        print(f"[ERROR Photo] {e}")
         return False
 
 
 def send_long_telegram_message(text: str, chat_id: str = None, parse_mode: str = "HTML", reply_markup: dict = None) -> bool:
-    MAX_LEN = 4000
-    if len(text) <= MAX_LEN:
-        return send_telegram_message(text, chat_id, parse_mode, reply_markup=reply_markup)
+    max_len = 3900
+    if len(text) <= max_len:
+        return send_telegram_message(text, chat_id=chat_id, parse_mode=parse_mode, reply_markup=reply_markup)
 
+    lines = text.split("\n")
     chunks = []
-    while text:
-        if len(text) <= MAX_LEN:
-            chunks.append(text)
-            break
-        split_idx = text.rfind("\n", 0, MAX_LEN)
-        if split_idx == -1:
-            split_idx = MAX_LEN
-        chunks.append(text[:split_idx])
-        text = text[split_idx:].lstrip("\n")
+    current_chunk = ""
+
+    for line in lines:
+        if len(current_chunk) + len(line) + 1 > max_len:
+            chunks.append(current_chunk)
+            current_chunk = line + "\n"
+        else:
+            current_chunk += line + "\n"
+
+    if current_chunk.strip():
+        chunks.append(current_chunk)
 
     success = True
-    for i, chunk in enumerate(chunks):
-        rm = reply_markup if i == len(chunks) - 1 else None
-        if not send_telegram_message(chunk, chat_id, parse_mode, reply_markup=rm):
+    for idx, chunk in enumerate(chunks):
+        markup = reply_markup if (idx == len(chunks) - 1) else None
+        res = send_telegram_message(chunk, chat_id=chat_id, parse_mode=parse_mode, reply_markup=markup)
+        if not res:
             success = False
+        time.sleep(0.5)
+
     return success
 
 
@@ -202,145 +255,104 @@ def answer_telegram_callback(callback_query_id: str):
         return
     url = f"https://api.telegram.org/bot{token}/answerCallbackQuery"
     try:
-        requests.post(url, json={"callback_query_id": callback_query_id}, timeout=10)
+        requests.post(url, json={"callback_query_id": callback_query_id}, timeout=5)
     except Exception:
         pass
 
 
 def format_ihsg_message(data: dict) -> str:
     if "error" in data:
-        return f"❌ <b>Error:</b> {esc(str(data['error']))}"
+        return f"❌ <b>Gagal Menganalisis IHSG:</b> {data['error']}"
 
-    change_sym = "+" if data["pct_change"] >= 0 else ""
-    return (
-        f"📊 <b>IHSG MARKET SIGNAL UPDATE</b> 🇮🇩\n"
-        f"📅 <i>Tanggal: {esc(str(data['date']))}</i>\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"🎯 <b>Level IHSG:</b> <code>{data['close']:,.2f}</code> ({change_sym}{data['pct_change']:.2f}% | {change_sym}{data['change_pts']:.2f} pts)\n"
-        f"📈 <b>Tren Pasar:</b> {data['trend_emoji']} <b>{esc(str(data['trend']))}</b>\n"
-        f"⚡ <b>Momentum:</b> <b>{esc(str(data['momentum']))}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"<b>Indikator Kunci:</b>\n"
-        f"• RSI (14): <code>{data['rsi']}</code> — <i>{esc(str(data['rsi_status']))}</i>\n"
-        f"• MA20: <code>{data['ma20']:,.2f}</code> | MA50: <code>{data['ma50']:,.2f}</code>\n"
-        f"• Support: <code>{data['support']:,.2f}</code> | Resistance: <code>{data['resistance']:,.2f}</code>\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"💡 <b>Strategi:</b>\n"
-        f"👉 <b>{esc(str(data['recommendation']))}</b>"
-    )
-
-
-def format_daily_prediction_message(data: dict) -> str:
-    if "error" in data:
-        return f"❌ <b>Error:</b> {esc(str(data['error']))}"
-
-    factors_str = "\n".join([f"• {f}" for f in data.get("factors", [])])
-    tier = data.get("tier_label", "⚡ TIER 2: SINYAL HARIAN")
-    win_rate = data.get("win_rate_est", "60%")
+    chg_sym = "+" if data["pct_change"] >= 0 else ""
+    flow_str = f"+Rp{data['whale_flow_billion']:.1f} M" if data['whale_flow_billion'] >= 0 else f"-Rp{abs(data['whale_flow_billion']):.1f} M"
 
     return (
-        "🔮 <b>PREDIKSI HARIAN ARAH IHSG (AI SNIPER ENGINE)</b> 📊\n"
-        "<i>Berdasarkan 4 Pola Sniper: EIDO Wall Street + Kurs Rupiah + V-Rebound</i>\n"
+        "📊 <b>IHSG COMPREHENSIVE SIGNAL UPDATE</b>\n"
+        f"📅 <i>Tanggal: {data['date']}</i>\n"
         "━━━━━━━━━━━━━━━━━━━\n"
-        f"🏷️ <b>Status Tingkatan:</b> <b>{tier}</b>\n"
-        f"🎯 <b>Arah Prediksi:</b> <b>{data['direction']}</b>\n"
-        f"🏆 <b>Akurasi Historis (Win Rate):</b> <code>{win_rate}</code>\n"
-        f"⚡ <b>Skor Kekuatan Sinyal:</b> <code>{data['score']:+d}</code> (-100 s/d +100)\n"
+        f"💵 <b>IHSG:</b> <code>{data['close']:,.2f}</code> ({chg_sym}{data['pct_change']:.2f}%)\n"
+        f"🧭 <b>Status Tren:</b> <b>{data['trend']}</b>\n"
+        f"⚡ <b>RSI (14):</b> <code>{data['rsi']:.1f}</code>\n"
+        f"🌊 <b>Chaikin Money Flow:</b> <code>{data['cmf']:.3f}</code>\n"
         "━━━━━━━━━━━━━━━━━━━\n"
-        f"💵 <b>Level IHSG Terakhir:</b> <code>{data['ihsg_current']:,.2f}</code> ({data['ihsg_last_chg']:+.2f}%)\n"
-        f"🛡️ <b>Estimasi Support Harian:</b> <code>{data['support']:,.2f}</code>\n"
-        f"🚀 <b>Estimasi Resistance Harian:</b> <code>{data['resistance']:,.2f}</code>\n"
+        f"🐋 <b>WHALE &amp; BANDARMOLOGY:</b>\n"
+        f"• Net Flow Whale (Top 15): <b>{flow_str}</b>\n"
+        f"• Status Dominasi: <b>{data['whale_signal']}</b>\n"
         "━━━━━━━━━━━━━━━━━━━\n"
-        "🔍 <b>FAKTOR KUNCI HARI INI:</b>\n"
-        f"{factors_str}\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        f"💡 <b>PANDUAN EKSEKUSI TRADING:</b>\n<i>{data['guidance']}</i>"
+        f"🛡️ <b>Level Kunci:</b> Support <code>{data['support']:,.2f}</code> | Resistance <code>{data['resistance']:,.2f}</code>\n"
+        f"💡 <b>Panduan Aksi:</b>\n👉 <i>{data['action']}</i>"
     )
 
 
 def format_single_stock_message(data: dict) -> str:
     if "error" in data:
-        return f"❌ <b>Gagal Menganalisis Saham:</b> {esc(str(data['error']))}"
+        return f"❌ <b>Gagal Menganalisis #{data.get('ticker', '')}:</b> {data['error']}"
 
+    chg_sym = "+" if data["pct_change"] >= 0 else ""
     w = data["whale"]
     tp = data["trading_plan"]
-    chg_sym = "+" if data["pct_change"] >= 0 else ""
     flow_str = f"+Rp{w['whale_flow_billion']:.1f} M" if w['whale_flow_billion'] >= 0 else f"-Rp{abs(w['whale_flow_billion']):.1f} M"
 
-    reasons_text = ""
-    if w.get("entry_reasons"):
-        reasons_text = "\n🔍 <b>Fakta Akumulasi:</b>\n" + "\n".join([f" • {r}" for r in w["entry_reasons"]])
+    news_lines = []
+    if data.get("news"):
+        for n in data["news"][:2]:
+            news_lines.append(f"• {n['badge']} {esc(n['title'])} <i>({esc(n['source'])})</i>")
+    news_block = "\n".join(news_lines) if news_lines else "• <i>Tidak ada rumor/berita khusus terdeteksi hari ini.</i>"
 
-    res = (
-        f"💎 <b>ANALISIS SAHAM &amp; WHALE FLOW: #{data['ticker']}</b>\n"
-        f"📅 <i>Tanggal: {data['date']}</i>\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
+    return (
+        f"🎯 <b>ANALISIS DEEP DIVE: #{data['ticker']}</b>\n"
+        f"📅 <i>{data['date']} | Sektor: {data['sector']}</i>\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
         f"💵 <b>Harga Terakhir:</b> <code>Rp{int(data['close']):,}</code> ({chg_sym}{data['pct_change']:.2f}%)\n"
-        f"🏷️ <b>Sinyal:</b> {data['signal_badge']}\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"🐋 <b>BANDARMOLOGY &amp; WHALE METRICS:</b>\n"
-        f" • Status: <b>{w['whale_status']}</b>\n"
-        f" • Skor Akumulasi: <b>{w['whale_score']}/100</b>\n"
-        f" • RVOL (Lonjakan Vol): <b>{w['rvol']:.2f}x</b> dari rata-rata\n"
-        f" • Est. Net Whale Flow: <b>{flow_str}</b>\n"
-        f" • Est. Harga Beli Whale (VWAP): <code>Rp{int(w['whale_vwap']):,}</code> ({w['pct_from_vwap']:+.1f}% vs harga)\n"
-        f" • Profil Lot: 🐋 <b>Jumbo {w.get('lot_profile', {}).get('jumbo_pct', 50)}%</b> | 🐜 Retail {w.get('lot_profile', {}).get('retail_pct', 30)}%\n"
-        f" • <i>{w.get('lot_profile', {}).get('summary', '')}</i>\n"
-        f"{reasons_text}\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"📐 <b>INDIKATOR TEKNIKAL:</b>\n"
-        f" • EMA 20: <code>{int(data['ema20']):,}</code> | EMA 50: <code>{int(data['ema50']):,}</code>\n"
-        f" • RSI 14: <code>{data['rsi']:.1f}</code>\n"
-        f" • Support: <code>Rp{int(data['levels']['support_1']):,}</code>\n"
-        f" • Resistance: <code>Rp{int(data['levels']['resistance_1']):,}</code>\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"🎯 <b>TRADING PLAN REKOMENDASI (SWING):</b>\n"
-        f" • Area Beli: <code>Rp{tp['entry_area']}</code>\n"
-        f" • Target 1 (TP1): <code>Rp{tp['tp1']:,}</code>\n"
-        f" • Target 2 (TP2): <code>Rp{tp['tp2']:,}</code>\n"
-        f" • Stop Loss (SL): <code>Rp{tp['stop_loss']:,}</code>\n"
-        f" • Risk/Reward Ratio: <b>{tp['rr_ratio']}x</b>\n"
+        f"📈 <b>Tren Pasar:</b> <b>{data['trend']}</b>\n"
+        f"⚡ <b>RSI (14):</b> <code>{data['rsi']:.1f}</code> ({'Jenuh Jual / Oversold' if data['rsi'] < 30 else 'Jenuh Beli / Overbought' if data['rsi'] > 70 else 'Netral'})\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "🐋 <b>JEJAK WHALE &amp; BANDAR:</b>\n"
+        f"• Status Akumulasi: <b>{w['whale_status']}</b> (Skor: <code>{w['whale_score']}/100</code>)\n"
+        f"• Net Flow Modal: <b>{flow_str}</b>\n"
+        f"• Lonjakan Volume (RVOL): <code>{w['rvol']:.2f}x</code> dari rata-rata\n"
+        f"• Est. Modal Rata-rata Bandar (VWAP): <code>Rp{int(w['whale_vwap']):,}</code>\n"
+        f"• Posisi Harga vs Modal Bandar: <b>{w['pct_from_vwap']:+.1f}%</b>\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "📰 <b>RADAR BERITA &amp; RUMOR TERKINI:</b>\n"
+        f"{news_block}\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "📋 <b>TRADING PLAN OTOMATIS:</b>\n"
+        f"• Rekomendasi: <b>{tp['action']}</b>\n"
+        f"• Area Entry: <code>Rp{tp['entry_area']}</code>\n"
+        f"• Target TP 1: <code>Rp{tp['tp1']:,}</code> (+{tp['tp1_gain_pct']}%)\n"
+        f"• Target TP 2: <code>Rp{tp['tp2']:,}</code> (+{tp['tp2_gain_pct']}%)\n"
+        f"• Stop Loss (SL): <code>Rp{tp['stop_loss']:,}</code> ({tp['sl_loss_pct']}%)\n"
+        f"• Reward/Risk Ratio: <code>{tp['risk_reward_ratio']}x</code>\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        f"💡 <i>Tip: Disiplin pada Stop Loss jika bandar berbalik distribusi!</i>"
     )
-
-    sent = data.get("sentiment", {})
-    if sent:
-        news_lines = [
-            f"\n📰 <b>BAU SENTIMEN BERITA &amp; KATALIS:</b> {sent.get('badge', '⚪')}",
-            f"<i>{sent.get('catalyst_summary', '')}</i>"
-        ]
-        headlines = sent.get("headlines", [])
-        if headlines:
-            news_lines.append("<b>Top Berita Terkini:</b>")
-            for h in headlines[:3]:
-                news_lines.append(f" {h['tag']} {h['title']} <i>({h['source']})</i>")
-        res += "\n━━━━━━━━━━━━━━━━━━━\n" + "\n".join(news_lines)
-
-    return res
 
 
 def format_hedgefund_message(data: dict) -> str:
     if "error" in data:
-        return f"❌ {data['error']}"
+        return f"❌ <b>Error Wyckoff / Hedge Fund #{data.get('ticker', '')}:</b> {data['error']}"
+
+    chg_sym = "+" if data["pct_change"] >= 0 else ""
+    cost_status = f"💎 Diskon Modal Bandar (-{abs(data['pct_from_vwap20']):.1f}%)" if data['pct_from_vwap20'] < 0 else f"🎯 Premium (+{data['pct_from_vwap20']:.1f}%)"
 
     return (
-        f"🏛️ <b>HEDGE FUND &amp; WYCKOFF RADAR: #{data['ticker']}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"🎯 <b>Status Fase Bandar:</b>\n"
-        f"{data['phase_badge']}\n"
-        f"<i>{data['phase_desc']}</i>\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"💵 <b>Harga Saham Saat Ini:</b> <code>Rp{data['price']:,}</code>\n"
-        f"🐋 <b>Harga Modal Bandar (VWAP):</b> <code>Rp{data['vwap_20']:,}</code> ({data['pct_from_vwap']:+.1f}% vs harga)\n"
-        f"🌊 <b>Arus Akumulasi CMF (10 Hari):</b> <code>{data['cmf_10']:+.3f}</code>\n"
-        f"⚡ <b>Lonjakan Volume (RVOL):</b> <code>{data['rvol']:.2f}x</code>\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"📐 <b>LEVEL KUNCI HEDGE FUND:</b>\n"
-        f"• Area Support Kunci: <code>Rp{data['support_20']:,}</code>\n"
-        f"• Target Profit (Mark-up): <code>Rp{data['tp_target']:,}</code>\n"
-        f"• Stop Loss Proteksi: <code>Rp{data['spring_low']:,}</code>\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"💡 <b>Rekomendasi Aksi Hedge Fund:</b>\n"
-        f"👉 <b>{data['recommendation']}</b>"
+        f"🏛️ <b>WYCKOFF &amp; HEDGE FUND FOOTPRINT: #{data['ticker']}</b>\n"
+        f"📅 <i>Harga: Rp{int(data['close']):,} ({chg_sym}{data['pct_change']:.2f}%)</i>\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        f"🏷️ <b>Fase Wyckoff:</b> {data['phase_badge']}\n"
+        f"🎯 <b>Skor Akumulasi Senyap:</b> <code>{data['silent_score']}/100</code>\n"
+        f"⚖️ <b>Volatilitas ATR:</b> <code>{data['atr_pct']:.2f}%</code> (Tekanan Sell Mengering)\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "🐋 <b>BENCHMARK MODAL BANDAR:</b>\n"
+        f"• Modal 20-Hari Bandar (VWAP): <code>Rp{int(data['vwap_20']):,}</code>\n"
+        f"• Posisi Harga Saat Ini: <b>{cost_status}</b>\n"
+        f"• Support Spring (Batas Bawah): <code>Rp{int(data['spring_support']):,}</code>\n"
+        f"• Target Resistance TP: <code>Rp{int(data['tp_target']):,}</code>\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        f"📖 <b>DIAGNOSA AKSI BANDAR:</b>\n<i>{data['verdict']}</i>\n\n"
+        f"💡 <b>PANDUAN EKSEKUSI TRADING:</b>\n👉 <i>{data['strategy']}</i>"
     )
 
 
@@ -386,22 +398,22 @@ def format_flow_message(data: dict) -> str:
     return (
         f"🌊 <b>ORDER FLOW &amp; WHALE FOOTPRINT: #{data['ticker']}</b>\n"
         f"📅 <i>Tanggal: {data['date']} | Harga: Rp{int(data['close']):,} ({chg_sym}{data['pct_change']:.2f}%)</i>\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"⚖️ <b>TEKANAN VOLUME &amp; MONEY FLOW:</b>\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "⚖️ <b>TEKANAN VOLUME &amp; MONEY FLOW:</b>\n"
         f"• Arah Arus Uang: <b>{domination}</b>\n"
         f"• Net Whale Flow: <b>{flow_str}</b>\n"
         f"• Chaikin Money Flow: <code>{w['cmf']:.3f}</code>\n"
         f"• Lonjakan Vol (RVOL): <code>{w['rvol']:.2f}x</code> dari rata-rata\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"🐋 <b>PROFIL UKURAN TRANSAKSI (TICKET SIZE):</b>\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "🐋 <b>PROFIL UKURAN TRANSAKSI (TICKET SIZE):</b>\n"
         f"• 🐋 <b>Order Jumbo (Bandar/Institusi):</b> <code>{jumbo}%</code>\n"
         f"  [{bar_jumbo}]\n"
         f"• 🐜 <b>Order Retail (Semut/FOMO):</b> <code>{retail}%</code>\n"
         f"  [{bar_retail}]\n"
         f"• 📦 <b>Order Menengah:</b> <code>{medium}%</code>\n\n"
         f"💡 <i>{lot.get('summary', '')}</i>\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"🎯 <b>MODAL BANDAR &amp; TOLOK UKUR:</b>\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "🎯 <b>MODAL BANDAR &amp; TOLOK UKUR:</b>\n"
         f"• Est. Rata-rata Modal Bandar (VWAP): <code>Rp{int(w['whale_vwap']):,}</code>\n"
         f"• Posisi Harga vs Modal Bandar: <b>{w['pct_from_vwap']:+.1f}%</b>\n"
         f"• Support Kunci: <code>Rp{int(data['levels']['support_1']):,}</code>\n"
@@ -415,118 +427,109 @@ def format_position_sizing_message(data: dict) -> str:
 
     return (
         f"🧮 <b>SMART MONEY MANAGEMENT: #{data['ticker']}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
         f"💰 <b>Total Modal Alokasi:</b> <code>Rp{int(data['capital']):,}</code>\n"
         f"💵 <b>Harga Saham Saat Ini:</b> <code>Rp{data['price']:,}</code> (Rp{data['cost_per_lot']:,}/lot)\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"🛡️ <b>REKOMENDASI PORSI AMAN (RISK 2%):</b>\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "🛡️ <b>REKOMENDASI PORSI AMAN (RISK 2%):</b>\n"
         f"• Alokasi Aman: <b>{data['recommended_lots']} Lot</b> ({data['recommended_lots'] * 100:,} lembar)\n"
         f"• Total Modal Dipakai: <code>Rp{data['total_spent']:,}</code>\n"
         f"• Sisa Kas Aman (Cash Buffer): <code>Rp{data['cash_remaining']:,}</code>\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"🎯 <b>SKENARIO PROFIT / LOSS:</b>\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "🎯 <b>SKENARIO PROFIT / LOSS:</b>\n"
         f"• Target TP1: <code>Rp{data['tp1']:,}</code> (+{data['profit_pct']}%)\n"
         f"  👉 Potensi Cuan: <b>+Rp{data['profit_potential']:,}</b>\n"
         f"• Stop Loss (SL): <code>Rp{data['sl']:,}</code> ({data['loss_pct']}%)\n"
         f"  👉 Resiko Toleransi: <b>-Rp{data['loss_potential']:,}</b>\n"
         f"• Reward to Risk Ratio: <b>{data['rr_ratio']}x</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
         f"💡 <i>Catatan: Jangan all-in pada 1 saham. Disiplin cut loss bila tembus SL!</i>"
     )
 
 
 def format_sector_rotation_message(sectors: list) -> str:
     if not sectors:
-        return "⚠️ Gagal mengambil data rotasi sektor."
+        return "⚠️ Gagal membaca data rotasi sektor hari ini."
 
     lines = [
-        "🔄 <b>RADAR ROTASI SEKTOR IHSG (FUND FLOW)</b> 📊",
-        "<i>Mendeteksi ke sektor mana arus dana Big Money sedang mengalir hari ini:</i>",
+        "🔄 <b>PETA ROTASI SEKTOR BURSA (IDX SECTORS)</b>",
+        "<i>Mendeteksi sektor yang sedang menjadi primadona aliran dana:</i>",
         "━━━━━━━━━━━━━━━━━━━"
     ]
-
-    for idx, s in enumerate(sectors, 1):
-        arrow = "🟢" if s["avg_change"] > 0 else ("🔴" if s["avg_change"] < 0 else "⚪")
-        chg_sym = "+" if s["avg_change"] > 0 else ""
-        leader_sym = "+" if s["leader_pct"] > 0 else ""
+    for s in sectors:
+        chg_sym = "+" if s["chg_5d"] >= 0 else ""
         lines.append(
-            f"{arrow} <b>{s['sector']}</b>\n"
-            f"   • Rata-rata: <b>{chg_sym}{s['avg_change']:.2f}%</b>\n"
-            f"   • Top Stock: <b>#{s['leader']}</b> ({leader_sym}{s['leader_pct']:.2f}%)\n"
+            f"<b>{s['badge']} {s['sector']}</b>\n"
+            f"   • Return 5 Hari: <b>{chg_sym}{s['chg_5d']:.2f}%</b> ({s['status']})\n"
+            f"   • Saham Penggerak: <code>#{s['leader']}</code>\n"
         )
-
     lines.append("━━━━━━━━━━━━━━━━━━━")
-    lines.append("💡 <i>Ketik <code>/scan KODE</code> pada saham pemimpin sektor yang sedang naik untuk momentum swing.</i>")
+    lines.append("💡 <i>Tip: Masuk ke saham di sektor LEADING atau ACCELERATING untuk momentum terbaik!</i>")
     return "\n".join(lines)
 
 
 def format_whale_footprint_message(data: dict) -> str:
     if "error" in data:
-        return f"❌ <b>Error:</b> {esc(str(data['error']))}"
+        return f"❌ <b>Error Whale Footprint #{data.get('ticker', '')}:</b> {data['error']}"
 
-    cmf_20 = data.get("cmf_20", 0)
-    cmf_status = "🟢 Arus Masuk Kuat (Whale Inflow)" if cmf_20 > 0.05 else ("🔴 Arus Keluar (Whale Outflow)" if cmf_20 < -0.05 else "⚪ Netral")
-
-    lines = [
-        f"🐋 <b>INSTITUTIONAL WHALE RADAR: #{data['ticker']}</b> 🔍",
-        f"<i>Deteksi Jejak Smart Money &amp; Bandarmology Bursa Efek Indonesia</i>",
-        "━━━━━━━━━━━━━━━━━━━",
-        f"🎯 <b>Skor Akumulasi Whale: {data['whale_score']}/100</b>",
-        f"🏷️ <b>Status:</b> {data['badge']}",
-        f"💰 <b>Harga Sekarang:</b> <code>Rp{int(data['close']):,}</code>",
-        "━━━━━━━━━━━━━━━━━━━",
-        "📊 <b>BANDARMOLOGY FOOTPRINT METRICS:</b>",
-        f"• <b>Modal Rata-rata Whale:</b> <code>Rp{int(data['vwap_20d']):,}</code>",
-        f"• <b>Posisi Terhadap Modal Bandar:</b> {data['cost_status']}",
-        f"• <b>Spike Volume / Absorpsi:</b> <b>{data['rvol']:.1f}x</b> rata-rata",
-        f"• <b>Money Flow Institusi (CMF):</b> <b>{cmf_20:+.2f}</b> ({cmf_status})",
-        f"• <b>Kompresi Volatilitas (Squeeze):</b> {'🔒 Ya (Akumulasi Senyap)' if data['is_squeeze'] else '🔓 Tidak'}",
-        "━━━━━━━━━━━━━━━━━━━",
-        f"📖 <b>DIAGNOSA PERILAKU WHALE:</b>\n<i>{data['explanation']}</i>",
-        "",
-        f"🎯 <b>RENCANA EKSEKUSI INSTITUSI:</b>\n<i>{data['action_plan']}</i>\n",
-        f"• 🎯 <b>Target Mark-Up 1:</b> <code>Rp{int(data['tp1']):,}</code>",
-        f"• 🚀 <b>Target Mark-Up 2:</b> <code>Rp{int(data['tp2']):,}</code>",
-        f"• 🛑 <b>Stop Loss Pengaman:</b> <code>Rp{int(data['sl']):,}</code>",
-        "━━━━━━━━━━━━━━━━━━━",
-        f"💡 <i>Tip: Klik tombol <b>[📊 Buka Chart]</b> atau <b>[🧮 Hitung Lot]</b> di bawah ini.</i>"
-    ]
-    return "\n".join(lines)
+    chg_sym = "+" if data["pct_change"] >= 0 else ""
+    return (
+        f"🐋 <b>DIAGNOSA WHALE FOOTPRINT: #{data['ticker']}</b>\n"
+        f"📅 <i>Harga: Rp{int(data['close']):,} ({chg_sym}{data['pct_change']:.2f}%)</i>\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        f"🎯 <b>Skor Akumulasi Whale:</b> <b>{data['whale_score']}/100</b>\n"
+        f"🏷️ <b>Status Bandar:</b> <b>{data['whale_status']}</b>\n"
+        f"⚡ <b>Lonjakan Volume (RVOL):</b> <code>{data['rvol']:.2f}x</code> dari rata-rata\n"
+        f"🌊 <b>Chaikin Money Flow:</b> <code>{data['cmf']:.3f}</code>\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "🎯 <b>ANALISIS MODAL BANDAR:</b>\n"
+        f"• Modal 20-Hari Bandar (VWAP): <code>Rp{int(data['vwap_20d']):,}</code>\n"
+        f"• Modal 5-Hari Terakhir: <code>Rp{int(data['vwap_5d']):,}</code>\n"
+        f"• Posisi Harga vs Modal 20D: <b>{data['pct_diff_vwap20']:+.1f}%</b>\n"
+        f"• Support Bandar Terdekat: <code>Rp{int(data['sl_support']):,}</code>\n"
+        f"• Target Profit 1 (TP1): <code>Rp{int(data['tp1']):,}</code>\n"
+        f"• Target Profit 2 (TP2): <code>Rp{int(data['tp2']):,}</code>\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        f"📖 <b>DIAGNOSA AKSI:</b>\n<i>{data['action']}</i>"
+    )
 
 
 def format_top_whale_scan_message(stocks: list, title_tag: str = "LQ45") -> str:
     if not stocks:
-        return f"⚠️ Belum ada saham di {title_tag} yang memenuhi kriteria akumulasi masif Whale hari ini."
+        return f"⚠️ Belum ada saham yang masuk kriteria akumulasi masif di kategori {title_tag}."
 
     lines = [
-        f"🐋 <b>TOP WHALE ACCUMULATION RADAR ({title_tag})</b> 🚀",
-        "<i>Daftar saham yang sedang dikoleksi diam-diam oleh Smart Money:</i>",
+        f"👑 <b>TOP WHALE ACCUMULATION ({title_tag})</b> 🚀",
+        "<i>Saham dengan akumulasi institusi / smart money paling dominan:</i>",
         "━━━━━━━━━━━━━━━━━━━"
     ]
     for idx, s in enumerate(stocks, 1):
+        disc_str = f"💎 Diskon {abs(s['pct_diff_vwap20']):.1f}%" if s['pct_diff_vwap20'] < -1.0 else f"🎯 Modal Seimbang"
         lines.append(
-            f"<b>{idx}. #{s['ticker']}</b> — <code>Rp{int(s['close']):,}</code>\n"
+            f"<b>{idx}. #{s['ticker']}</b> (<code>Rp{int(s['close']):,}</code>)\n"
             f"   • Skor Whale: <b>{s['whale_score']}/100</b> ({s['status']})\n"
-            f"   • Modal Whale: <code>Rp{int(s['vwap_20d']):,}</code> ({s['cost_status']})\n"
-            f"   • Target Mark-Up: <code>Rp{int(s['tp1']):,}</code> | SL: <code>Rp{int(s['sl']):,}</code>\n"
+            f"   • Modal Bandar: <code>Rp{int(s['vwap_20d']):,}</code> ({disc_str})\n"
+            f"   • Target TP: <code>Rp{int(s['tp1']):,}</code> | Stop Loss: <code>Rp{int(s['sl']):,}</code>\n"
         )
     lines.append("━━━━━━━━━━━━━━━━━━━")
-    lines.append("💡 <i>Ketik <code>/whale KODE</code> (misal: <code>/whale BBCA</code>) untuk bedah footprint lengkap.</i>")
+    lines.append("💡 <i>Ketik <code>/whale KODE</code> (misal: <code>/whale BBCA</code>) untuk diagnosa footprint mendalam.</i>")
     return "\n".join(lines)
 
 
 def format_whale_tier_list_message(tiers: dict) -> str:
+    if "error" in tiers:
+        return f"❌ <b>Error Tier List:</b> {tiers['error']}"
+
     tier_s = tiers.get("tier_s", [])
     tier_a = tiers.get("tier_a", [])
     tier_b = tiers.get("tier_b", [])
 
     lines = [
-        "🏆 <b>TIER LIST AKUMULASI WHALE (LQ45)</b> 🐋",
-        "<i>Klasifikasi saham berdasarkan kekuatan akumulasi Big Money &amp; diskon modal:</i>",
+        "🏆 <b>TIER LIST WHALE &amp; BANDARMOLOGY (LQ45)</b> 📊",
+        "<i>Ranking saham berdasarkan kekuatan akumulasi institusi &amp; posisi modal bandar:</i>",
         "━━━━━━━━━━━━━━━━━━━"
     ]
 
-    # TIER S
     lines.append("👑 <b>TIER S — GOD TIER (Monster Akumulasi &amp; High Conviction)</b>")
     lines.append("<i>Saham dengan skor tertinggi (≥90) &amp; akumulasi institusi masif:</i>")
     if not tier_s:
@@ -541,7 +544,6 @@ def format_whale_tier_list_message(tiers: dict) -> str:
                 f"   • Target TP: <code>Rp{int(s['tp1']):,}</code> | Stop Loss: <code>Rp{int(s['sl']):,}</code>\n"
             )
 
-    # TIER A
     lines.append("💎 <b>TIER A — HIGH CONVICTION (Akumulasi Kuat &amp; Siap Mark-Up)</b>")
     lines.append("<i>Saham dengan akumulasi solid (skor 80–89) &amp; penyerapan stabil:</i>")
     if not tier_a:
@@ -556,7 +558,6 @@ def format_whale_tier_list_message(tiers: dict) -> str:
                 f"   • Target TP: <code>Rp{int(s['tp1']):,}</code> | Stop Loss: <code>Rp{int(s['sl']):,}</code>\n"
             )
 
-    # TIER B
     lines.append("⚡ <b>TIER B — EARLY ACCUMULATION (Fase Penyerapan Awal)</b>")
     lines.append("<i>Saham tahap awal akumulasi (skor 70–79) yang sedang menguji support:</i>")
     if not tier_b:
@@ -572,7 +573,6 @@ def format_whale_tier_list_message(tiers: dict) -> str:
     lines.append("💡 <b>Rekomendasi Trading:</b>")
     lines.append("👉 Prioritaskan entry pada saham <b>Tier S</b> dan <b>Tier A</b> yang bertanda 💎 <i>Diskon Bandar</i> untuk Risk/Reward Ratio maksimal.")
     lines.append("👉 Ketik <code>/whale KODE</code> (misal: <code>/whale MDKA</code>) untuk melihat diagnosa detail.")
-
     return "\n".join(lines)
 
 
@@ -642,6 +642,34 @@ def format_multibagger_scan_message(picks: list) -> str:
     lines.append("━━━━━━━━━━━━━━━━━━━")
     lines.append("💡 <i>Ketik <code>/rumor KODE</code> (misal: <code>/rumor BIPI</code>) untuk membedah berita &amp; akumulasi bandar lengkap!</i>")
     return "\n".join(lines)
+
+
+def format_daily_prediction_message(data: dict) -> str:
+    if "error" in data:
+        return f"❌ <b>Error:</b> {esc(str(data['error']))}"
+
+    factors_str = "\n".join([f"• {f}" for f in data.get("factors", [])])
+    tier = data.get("tier_label", "⚡ TIER 2: SINYAL HARIAN")
+    win_rate = data.get("win_rate_est", "60%")
+
+    return (
+        "🔮 <b>PREDIKSI HARIAN ARAH IHSG (AI SNIPER ENGINE)</b> 📊\n"
+        "<i>Berdasarkan 4 Pola Sniper: EIDO Wall Street + Kurs Rupiah + V-Rebound</i>\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        f"🏷️ <b>Status Tingkatan:</b> <b>{tier}</b>\n"
+        f"🎯 <b>Arah Prediksi:</b> <b>{data['direction']}</b>\n"
+        f"🏆 <b>Akurasi Historis (Win Rate):</b> <code>{win_rate}</code>\n"
+        f"⚡ <b>Skor Kekuatan Sinyal:</b> <code>{data['score']:+d}</code> (-100 s/d +100)\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        f"💵 <b>Level IHSG Terakhir:</b> <code>{data['ihsg_current']:,.2f}</code> ({data['ihsg_last_chg']:+.2f}%)\n"
+        f"🛡️ <b>Estimasi Support Harian:</b> <code>{data['support']:,.2f}</code>\n"
+        f"🚀 <b>Estimasi Resistance Harian:</b> <code>{data['resistance']:,.2f}</code>\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "🔍 <b>FAKTOR KUNCI HARI INI:</b>\n"
+        f"{factors_str}\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        f"💡 <b>PANDUAN EKSEKUSI TRADING:</b>\n<i>{data['guidance']}</i>"
+    )
 
 
 def format_ihsg_regime_message(data: dict) -> str:
@@ -730,6 +758,9 @@ def format_whale_scan_message(stocks: list, title_tag: str = "LQ45", limit: int 
 
 
 def handle_telegram_callback(callback_query: dict):
+    """
+    Menangani aksi klik tombol interaktif Telegram inline keyboard.
+    """
     cb_id = callback_query.get("id")
     if cb_id:
         answer_telegram_callback(cb_id)
@@ -786,13 +817,13 @@ def handle_telegram_callback(callback_query: dict):
         msg_val = (
             f"💎 <b>DIAGNOSIS VALUASI: #{data_val['ticker']}</b>\n"
             f"🏢 <i>Sektor: {data_val['sector']}</i>\n"
-            f"━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━━━━━━━━━━\n"
             f"💵 <b>Harga Sekarang:</b> <code>Rp{int(data_val['price']):,}</code>\n"
             f"📊 <b>PBV (Price to Book):</b> <code>{data_val['pbv']}x</code>\n"
             f"📈 <b>PER (Price to Earnings):</b> <code>{data_val['per']}x</code>\n"
             f"💰 <b>Dividend Yield:</b> <code>{data_val['div_yield']}%</code>\n"
             f"🏛️ <b>Profitabilitas (ROE):</b> <code>{data_val['roe']}%</code>\n"
-            f"━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━━━━━━━━━━\n"
             f"🎯 <b>Status Valuasi:</b>\n👉 <b>{data_val['status']}</b>"
         )
         send_telegram_message(msg_val, chat_id)
@@ -810,9 +841,20 @@ def handle_telegram_callback(callback_query: dict):
     elif action == "menu":
         target = ticker.lower()
         if target == "prediksi":
-            send_telegram_message("🔮 <i>Menganalisis EIDO Wall Street, kurs Rupiah &amp; pola Sniper IHSG...</i>", chat_id)
+            send_telegram_message("🔮 <i>Mendiagnosis Wall Street semalam, kurs Rupiah & teknikal IHSG...</i>", chat_id)
             pred = predict_daily_ihsg_direction()
             send_long_telegram_message(format_daily_prediction_message(pred), chat_id)
+        elif target == "bersih":
+            send_telegram_message(
+                "🧹 <b>Mode Layar Bersih Aktif!</b>\n\n"
+                "Tombol bawah telah disembunyikan agar seluruh sinyal, grafik, dan teks analisa terbaca penuh tanpa tertutup tombol.\n\n"
+                "💡 <i>Anda bisa akses fitur lewat:\n"
+                "• Tombol <b>[Menu]</b> di pojok kiri bawah kolom ketik\n"
+                "• Ketik <code>/keyboard</code> untuk memunculkan tombol kembali\n"
+                "• Ketik <code>/menu</code> untuk membuka panel menu</i>",
+                chat_id,
+                reply_markup=make_remove_reply_keyboard()
+            )
         elif target == "multibagger":
             send_telegram_message("🚀 <i>Memindai saham potensi Multi-Bagger (Rumor Aksi Korporasi + Akumulasi)...</i>", chat_id)
             picks = scan_top_multibagger_picks(limit=6)
@@ -851,20 +893,27 @@ def handle_telegram_callback(callback_query: dict):
 def handle_telegram_command(command_text: str, chat_id: str):
     raw_text = command_text.strip()
 
+    # Mapping tombol keyboard bawah Telegram agar user cukup klik tanpa ngetik
     BTN_MAP = {
         "🔮 Prediksi Arah IHSG": "/prediksi",
         "🚀 Radar Multi-Bagger": "/multibagger",
         "🏆 Tier List Whale": "/tierlist",
         "🌐 Status Pasar IHSG": "/regime",
-        "💰 Portofolio 100 Juta": "/simulasi100jt",
         "🐋 Top Whale LQ45": "/whalelist",
         "🏛️ Wyckoff Hedge Fund": "/hedge",
         "🔄 Rotasi Sektor": "/sektor",
-        "📰 Radar Aksi Korporasi": "/insider"
+        "📰 Radar Aksi Korporasi": "/insider",
+        "💰 Portofolio 100 Juta": "/simulasi100jt"
     }
-
+    # Keyword & tombol matching fleksibel (kebal variasi emoji/spasi)
     raw_lower = raw_text.lower()
-    if "prediksi" in raw_lower or "arah ihsg" in raw_lower or "besok" in raw_lower or "arah" in raw_lower:
+    if raw_text in BTN_MAP:
+        command_text = BTN_MAP[raw_text]
+    elif "bersih" in raw_lower or "keyboard_off" in raw_lower or "tutup tombol" in raw_lower or "sembunyi" in raw_lower:
+        command_text = "/bersih"
+    elif "keyboard_on" in raw_lower or "buka tombol" in raw_lower or raw_lower == "keyboard":
+        command_text = "/keyboard"
+    elif "prediksi" in raw_lower or "arah ihsg" in raw_lower or "besok" in raw_lower or "arah" in raw_lower:
         command_text = "/prediksi"
     elif "tier list" in raw_lower:
         command_text = "/tierlist"
@@ -882,8 +931,6 @@ def handle_telegram_command(command_text: str, chat_id: str):
         command_text = "/sektor"
     elif "aksi korporasi" in raw_lower or "radar aksi" in raw_lower:
         command_text = "/insider"
-    elif raw_text in BTN_MAP:
-        command_text = BTN_MAP[raw_text]
 
     parts = command_text.strip().split()
     if not parts:
@@ -891,20 +938,45 @@ def handle_telegram_command(command_text: str, chat_id: str):
 
     cmd = parts[0].split("@")[0].lower()
 
-    if cmd in ["/start", "/menu", "/help"]:
+    if cmd in ["/start", "/help"]:
         help_msg = (
             "🤖 <b>IHSG &amp; WHALE BANDARMOLOGY SIGNAL BOT</b>\n\n"
             "Bot ini memantau IHSG dan mendeteksi saham yang diakumulasi Whale / Smart Money.\n\n"
-            "👇 <b>Cukup sentuh tombol menu di bawah layar atau klik tombol pilihan cepat berikut tanpa perlu mengetik:</b>"
+            "✨ <b>Tampilan Baru yang Lebih Bersih &amp; Rapi:</b>\n"
+            "• Tombol bawah dibuat ramping 2 baris agar <b>tidak menutupi sinyal</b>.\n"
+            "• Gunakan tombol <b>[Menu]</b> di pojok kiri bawah kolom ketik untuk akses cepat.\n"
+            "• Ketik <code>/bersih</code> kapan saja untuk menghilangkan tombol bawah sepenuhnya!"
         )
-        send_telegram_message(help_msg, chat_id, reply_markup=make_persistent_reply_keyboard())
+        send_telegram_message(help_msg, chat_id, reply_markup=make_compact_reply_keyboard())
         send_telegram_message("⚡ <b>PILIHAN MENU CEPAT (KLIK LANGSUNG):</b>", chat_id, reply_markup=make_main_inline_menu())
         return
 
-    elif cmd in ["/prediksi", "/arah", "/forecast", "/besok"]:
-        send_telegram_message("🔮 <i>Menganalisis EIDO Wall Street, kurs Rupiah &amp; pola Sniper IHSG...</i>", chat_id)
-        pred = predict_daily_ihsg_direction()
-        send_long_telegram_message(format_daily_prediction_message(pred), chat_id)
+    elif cmd in ["/menu"]:
+        send_telegram_message("⚡ <b>PILIHAN MENU CEPAT (KLIK LANGSUNG):</b>", chat_id, reply_markup=make_main_inline_menu())
+        return
+
+    elif cmd in ["/bersih", "/keyboard_off", "/hidekeyboard", "/clearkeyboard"]:
+        send_telegram_message(
+            "🧹 <b>Mode Layar Bersih Aktif!</b>\n\n"
+            "Tombol bawah telah disembunyikan agar seluruh sinyal, grafik, dan teks analisa terbaca penuh tanpa tertutup tombol.\n\n"
+            "💡 <i>Anda tetap bisa akses fitur dengan:\n"
+            "1️⃣ Tombol <b>[Menu]</b> di pojok kiri bawah kolom ketik\n"
+            "2️⃣ Ketik <code>/keyboard</code> untuk memunculkan tombol kembali\n"
+            "3️⃣ Ketik <code>/menu</code> untuk membuka panel menu</i>",
+            chat_id,
+            reply_markup=make_remove_reply_keyboard()
+        )
+        return
+
+    elif cmd in ["/keyboard", "/keyboard_on", "/tombol"]:
+        send_telegram_message(
+            "⌨️ <b>Tombol Menu Ramping Aktif!</b>\n\n"
+            "Tombol 2 baris telah dipasang di bawah layar (ringkas &amp; tidak menutupi sinyal).\n"
+            "Ketik <code>/bersih</code> kapan saja jika ingin menyembunyikannya.",
+            chat_id,
+            reply_markup=make_compact_reply_keyboard()
+        )
+        return
 
     elif cmd in ["/hedge", "/hedgefund", "/wyckoff"]:
         if len(parts) > 1:
@@ -933,16 +1005,21 @@ def handle_telegram_command(command_text: str, chat_id: str):
             return
 
         user_query = " ".join(parts[1:])
-        send_telegram_message("🤖 <i>AI Copilot sedang menganalisis pasar &amp; menyusun diagnosa...</i>", chat_id)
-        ans = answer_market_query(user_query)
-        ticker_found = extract_ticker_from_query(user_query)
-        kb = make_stock_inline_keyboard(ticker_found) if ticker_found else None
-        send_long_telegram_message(ans, chat_id, reply_markup=kb)
+        send_telegram_message(f"🤖 <i>AI Copilot sedang menganalisis: \"{esc(user_query)}\"...</i>", chat_id)
+        reply = answer_market_query(user_query)
+        detected_ticker = extract_ticker_from_query(user_query)
+        kb = make_stock_inline_keyboard(detected_ticker) if detected_ticker else None
+        send_long_telegram_message(reply, chat_id, reply_markup=kb)
 
-    elif cmd in ["/ihsg"]:
-        send_telegram_message("⏳ <i>Sedang menganalisis data IHSG...</i>", chat_id)
+    elif cmd in ["/ihsg", "/market"]:
+        send_telegram_message("⏳ <i>Mengambil data terkini IHSG &amp; net flow Whale...</i>", chat_id)
         data = analyze_ihsg()
         send_long_telegram_message(format_ihsg_message(data), chat_id)
+
+    elif cmd in ["/prediksi", "/arah", "/forecast", "/besok"]:
+        send_telegram_message("🔮 <i>Menganalisis Wall Street semalam, kurs Rupiah & teknikal IHSG...</i>", chat_id)
+        pred = predict_daily_ihsg_direction()
+        send_long_telegram_message(format_daily_prediction_message(pred), chat_id)
 
     elif cmd in ["/regime", "/ihsg_defense", "/macro"]:
         send_telegram_message("🌐 <i>Mendiagnosis kondisi kesehatan IHSG &amp; sinyal proteksi crash...</i>", chat_id)
@@ -960,31 +1037,14 @@ def handle_telegram_command(command_text: str, chat_id: str):
             kb = make_stock_inline_keyboard(ticker)
             send_long_telegram_message(format_whale_footprint_message(data_whale), chat_id, reply_markup=kb)
         else:
-            send_telegram_message("🐋 <i>Memindai saham LQ45 untuk mencari akumulasi Whale tertinggi...</i>", chat_id)
+            send_telegram_message("🐋 <i>Memindai saham LQ45 dengan akumulasi Whale tertinggi...</i>", chat_id)
             top_whales = scan_top_whale_accumulations(limit=6)
             send_long_telegram_message(format_top_whale_scan_message(top_whales, title_tag="LQ45 WHALE"), chat_id)
 
-    elif cmd in ["/whalelist", "/topwhale"]:
-        send_telegram_message("🐋 <i>Memindai saham LQ45 untuk mencari akumulasi Whale tertinggi...</i>", chat_id)
-        top_whales = scan_top_whale_accumulations(limit=6)
-        send_long_telegram_message(format_top_whale_scan_message(top_whales, title_tag="LQ45 WHALE"), chat_id)
-
-    elif cmd in ["/tier", "/tierlist", "/tier_list"]:
+    elif cmd in ["/tierlist", "/tier"]:
         send_telegram_message("🏆 <i>Menyusun Tier List akumulasi Whale LQ45 (Tier S, A, B)...</i>", chat_id)
         tiers = get_whale_tier_list(LQ45_WATCHLIST)
         send_long_telegram_message(format_whale_tier_list_message(tiers), chat_id)
-
-    elif cmd in ["/rumor", "/akuisisi", "/katalis"]:
-        if len(parts) > 1:
-            ticker = parts[1].upper()
-            send_telegram_message(f"🚀 <i>Mendiagnosis rumor aksi korporasi &amp; potensi Multi-Bagger #{esc(ticker)}...</i>", chat_id)
-            data_mb = analyze_multibagger_rumor(ticker)
-            kb = make_stock_inline_keyboard(ticker)
-            send_long_telegram_message(format_multibagger_detail_message(data_mb), chat_id, reply_markup=kb)
-        else:
-            send_telegram_message("🚀 <i>Memindai saham potensi Multi-Bagger (Rumor Aksi Korporasi + Akumulasi)...</i>", chat_id)
-            picks = scan_top_multibagger_picks(limit=6)
-            send_long_telegram_message(format_multibagger_scan_message(picks), chat_id)
 
     elif cmd in ["/multibagger", "/mb"]:
         if len(parts) > 1:
@@ -1003,26 +1063,14 @@ def handle_telegram_command(command_text: str, chat_id: str):
         picks = scan_top_multibagger_picks(limit=8, watchlist=KOMPAS100_WATCHLIST)
         send_long_telegram_message(format_multibagger_scan_message(picks), chat_id)
 
-    elif cmd in ["/lq45", "/akumulasi"]:
-        send_telegram_message("⏳ <i>Memindai saham LQ45 untuk deteksi akumulasi Whale...</i>", chat_id)
-        stocks = scan_whale_watchlist(LQ45_WATCHLIST)
-        send_long_telegram_message(format_whale_scan_message(stocks, title_tag="LQ45"), chat_id)
-
-    elif cmd in ["/kompas100"]:
-        send_telegram_message("⏳ <i>Memindai 100 saham Kompas100 secara paralel...</i>", chat_id)
-        stocks = scan_whale_watchlist(KOMPAS100_WATCHLIST)
-        send_long_telegram_message(format_whale_scan_message(stocks, title_tag="KOMPAS 100"), chat_id)
-
-    elif cmd in ["/whale_all", "/semua"]:
-        total_tickers = len(ALL_IDX_TICKERS)
-        send_telegram_message(f"⏳ <i>Memindai seluruh <b>{total_tickers} saham BEI</b>... Mohon tunggu ~20-30 detik.</i>", chat_id)
-        min_turnover = INDICATOR_CONFIG.get("min_turnover_billion", 0.5)
-        stocks = scan_whale_watchlist(ALL_IDX_TICKERS, min_turnover_billion=min_turnover, max_workers=8)
-        send_long_telegram_message(format_whale_scan_message(stocks, title_tag="ALL 958 IDX STOCKS", limit=10), chat_id)
+    elif cmd in ["/whalelist", "/topwhale"]:
+        send_telegram_message("👑 <i>Memindai akumulasi Whale terbesar lintas LQ45...</i>", chat_id)
+        top_whales = scan_top_whale_accumulations(limit=7)
+        send_long_telegram_message(format_top_whale_scan_message(top_whales, title_tag="LQ45"), chat_id)
 
     elif cmd in ["/scan"]:
         if len(parts) < 2:
-            send_telegram_message("⚠️ Harap sertakan kode saham. Contoh: <code>/scan BBCA</code>", chat_id)
+            send_telegram_message("⚠️ Harap sertakan kode saham. Contoh: <code>/scan BBCA</code> atau <code>/scan ASII</code>", chat_id)
             return
 
         ticker = parts[1].upper()
@@ -1040,30 +1088,10 @@ def handle_telegram_command(command_text: str, chat_id: str):
         send_telegram_message(f"🎨 <i>Menggambar visual candlestick chart &amp; TP/SL #{esc(ticker)}...</i>", chat_id)
         buf = generate_stock_chart(ticker)
         if buf is None:
-            send_telegram_message(f"❌ Gagal membuat chart untuk #{esc(ticker)}. Pastikan kode benar.", chat_id)
+            send_telegram_message(f"❌ Gagal membuat chart untuk #{esc(ticker)}. Pastikan ticker valid.", chat_id)
             return
-        caption = f"📊 <b>Technical Candlestick Chart: #{esc(ticker)}</b>\n<i>Garis Biru: EMA20 | Kuning: EMA50 | Cyan: TP1 | Merah: Stop Loss</i>"
-        if not send_telegram_photo(buf, caption=caption, chat_id=chat_id):
-            send_telegram_message(f"❌ Gagal mengirim gambar chart #{esc(ticker)} ke Telegram.", chat_id)
-
-    elif cmd in ["/calc", "/hitung", "/money", "/lot"]:
-        if len(parts) < 3:
-            send_telegram_message(
-                "⚠️ Format salah! Gunakan: <code>/lot [KODE] [MODAL]</code>\nContoh: <code>/lot BIPI 100jt</code> atau <code>/calc BBCA 10jt</code>",
-                chat_id
-            )
-            return
-
-        ticker = parts[1].upper()
-        capital_str = parts[2]
-        send_telegram_message(f"⏳ <i>Menghitung alokasi aman lot #{esc(ticker)} untuk modal {esc(capital_str)}...</i>", chat_id)
-        res = calculate_position_sizing(ticker, capital_str)
-        send_long_telegram_message(format_position_sizing_message(res), chat_id)
-
-    elif cmd in ["/sektor", "/sector"]:
-        send_telegram_message("⏳ <i>Memindai performa dan arus rotasi sektor IHSG...</i>", chat_id)
-        sectors = scan_sector_rotation()
-        send_long_telegram_message(format_sector_rotation_message(sectors), chat_id)
+        caption = f"📊 <b>Technical Candlestick Chart: #{esc(ticker)}</b>\n<i>Garis Biru: EMA20 | Kuning: EMA50 | Garis Cyan: TP1 | Garis Merah: Stop Loss</i>"
+        send_telegram_photo(buf, caption=caption, chat_id=chat_id)
 
     elif cmd in ["/flow", "/orderflow"]:
         if len(parts) < 2:
@@ -1086,18 +1114,16 @@ def handle_telegram_command(command_text: str, chat_id: str):
             "<i>Kabar Merger, Akuisisi, Buyback &amp; Dividen Terkini:</i>",
             "━━━━━━━━━━━━━━━━━━━"
         ]
-        if not actions:
-            lines.append("<i>Tidak ditemukan aksi korporasi khusus baru-baru ini.</i>")
-        else:
-            for a in actions:
-                lines.append(f"{a['badge']} <b>{a['category']}</b>\n👉 {a['title']} <i>({a['source']})</i>\n")
+        for a in actions:
+            t_tag = f"#{a['ticker']} " if a.get('ticker') else ""
+            lines.append(f"{a['badge']} <b>{t_tag}{a['category']}</b>\n👉 {a['title']} <i>({a['source']})</i>\n")
         lines.append("━━━━━━━━━━━━━━━━━━━")
         send_long_telegram_message("\n".join(lines), chat_id)
 
-    elif cmd in ["/undervalued", "/berlian", "/murah"]:
+    elif cmd in ["/valuasi", "/val"]:
         if len(parts) > 1:
             ticker = parts[1].upper()
-            send_telegram_message(f"⏳ <i>Mengecek valuasi fundamental #{ticker}...</i>", chat_id)
+            send_telegram_message(f"⏳ <i>Mengecek valuasi fundamental #{esc(ticker)}...</i>", chat_id)
             data = get_single_stock_valuation(ticker)
             if "error" in data:
                 send_telegram_message(f"❌ {data['error']}", chat_id)
@@ -1105,13 +1131,13 @@ def handle_telegram_command(command_text: str, chat_id: str):
             msg = (
                 f"💎 <b>DIAGNOSIS VALUASI: #{data['ticker']}</b>\n"
                 f"🏢 <i>Sektor: {data['sector']}</i>\n"
-                f"━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━━━━\n"
                 f"💵 <b>Harga Sekarang:</b> <code>Rp{int(data['price']):,}</code>\n"
                 f"📊 <b>PBV (Price to Book):</b> <code>{data['pbv']}x</code>\n"
                 f"📈 <b>PER (Price to Earnings):</b> <code>{data['per']}x</code>\n"
                 f"💰 <b>Dividend Yield:</b> <code>{data['div_yield']}%</code>\n"
                 f"🏛️ <b>Profitabilitas (ROE):</b> <code>{data['roe']}%</code>\n"
-                f"━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━━━━\n"
                 f"🎯 <b>Status Valuasi:</b>\n👉 <b>{data['status']}</b>"
             )
             kb = make_stock_inline_keyboard(ticker)
@@ -1126,25 +1152,41 @@ def handle_telegram_command(command_text: str, chat_id: str):
             ]
             for idx, s in enumerate(stocks, 1):
                 lines.append(
-                    f"<b>{idx}. #{s['ticker']}</b> (<code>Rp{int(s['price']):,}</code> | Sektor: {s['sector']})\n"
-                    f"   • PBV: <b>{s['pbv']}x</b> | PER: <b>{s['per']}x</b>\n"
-                    f"   • ROE: <b>{s['roe']}%</b> | Div Yield: <b>{s['div_yield']}%</b>\n"
-                    f"   • Diskon Fundamental: <b>{s['discount_score']}/100</b>\n"
+                    f"<b>{idx}. #{s['ticker']}</b> (<code>Rp{int(s['price']):,}</code>)\n"
+                    f"   • PBV: <code>{s['pbv']}x</code> | PER: <code>{s['per']}x</code>\n"
+                    f"   • 🏷️ {s['status']}\n"
                 )
             lines.append("━━━━━━━━━━━━━━━━━━━")
+            lines.append("💡 <i>Ketik <code>/val KODE</code> untuk melihat rasio fundamental lengkap.</i>")
             send_long_telegram_message("\n".join(lines), chat_id)
 
-    elif cmd in ["/dividen", "/dividend"]:
-        send_telegram_message("⏳ <i>Memindai saham-saham dengan Dividend Yield tertinggi di IDX...</i>", chat_id)
+    elif cmd in ["/calc", "/lot"]:
+        if len(parts) < 2:
+            send_telegram_message("⚠️ Format: <code>/calc KODE MODAL</code>\nContoh: <code>/calc BBCA 10jt</code> atau <code>/calc ASII 50jt</code>", chat_id)
+            return
+
+        ticker = parts[1].upper()
+        capital_str = parts[2] if len(parts) > 2 else "10jt"
+        send_telegram_message(f"⏳ <i>Menghitung money management #{esc(ticker)} untuk modal {capital_str}...</i>", chat_id)
+        res_calc = calculate_position_sizing(ticker, capital_str)
+        send_long_telegram_message(format_position_sizing_message(res_calc), chat_id)
+
+    elif cmd in ["/sektor", "/sector"]:
+        send_telegram_message("⏳ <i>Membaca aliran dana rotasi sektor IDX...</i>", chat_id)
+        sectors = scan_sector_rotation()
+        send_long_telegram_message(format_sector_rotation_message(sectors), chat_id)
+
+    elif cmd in ["/dividen"]:
+        send_telegram_message("⏳ <i>Memindai saham 'Cash Cow' dengan Dividend Yield tertinggi...</i>", chat_id)
         stocks = scan_high_dividend_stocks(LQ45_WATCHLIST, limit=5)
         lines = [
-            "💰 <b>TOP DIVIDEND YIELD RADAR (PASIF INCOME)</b> 💵",
-            "<i>Saham pemberi bagi hasil dividen paling royal di bursa:</i>",
+            "💰 <b>DIVIDEND HUNTER (CASH COW SCREENER)</b>",
+            "<i>Saham-saham pembagi dividen royal di bursa:</i>",
             "━━━━━━━━━━━━━━━━━━━"
         ]
         for idx, s in enumerate(stocks, 1):
             lines.append(
-                f"<b>{idx}. #{s['ticker']}</b> — <code>Rp{int(s['price']):,}</code>\n"
+                f"<b>{idx}. #{s['ticker']}</b> (<code>Rp{int(s['price']):,}</code>)\n"
                 f"   • 💰 <b>Dividend Yield: {s['div_yield']}%</b>\n"
                 f"   • Sektor: {s['sector']} | PER: {s['per']}x\n"
             )
@@ -1175,6 +1217,7 @@ def start_bot_polling():
     if not token or token == "YOUR_TELEGRAM_BOT_TOKEN_HERE":
         return
 
+    setup_bot_commands()
     print("🤖 Bot Telegram IHSG Signal & Whale Monitor aktif...")
     offset = 0
     while True:
@@ -1186,11 +1229,13 @@ def start_bot_polling():
                 for update in data.get("result", []):
                     offset = update["update_id"] + 1
 
+                    # 1. Tangani Klik Tombol Interaktif (Callback Query)
                     if "callback_query" in update:
                         cb = update["callback_query"]
                         _command_executor.submit(handle_telegram_callback, cb)
                         continue
 
+                    # 2. Tangani Pesan Teks Perintah Biasa
                     msg = update.get("message")
                     if not msg or "text" not in msg:
                         continue
@@ -1218,7 +1263,6 @@ def scheduled_worker():
             # Morning Brief (08:30 WIB - 30 Menit Sebelum Buka)
             if now_str == SCHEDULED_ALERTS.get("morning_brief", "08:30") and already_sent["morning"] != today_str:
                 if TELEGRAM_CHAT_ID:
-                    pred = predict_daily_ihsg_direction()
                     ihsg = analyze_ihsg()
                     hedge_picks = scan_hedgefund_picks(limit=4)
                     top_whales = scan_top_whale_accumulations(limit=3)
@@ -1226,7 +1270,6 @@ def scheduled_worker():
                     msg = (
                         "🌅 <b>MORNING MARKET RADAR &amp; WHALE REPORT (08:30 WIB)</b>\n"
                         "<i>30 Menit Menuju Pembukaan Sesi 1 IHSG!</i>\n\n"
-                        + format_daily_prediction_message(pred) + "\n\n"
                         + format_ihsg_message(ihsg) + "\n\n"
                         + format_top_whale_scan_message(top_whales, title_tag="TOP WHALE ACCUMULATION") + "\n\n"
                         + format_hedgefund_scan_message(hedge_picks) + "\n\n"
