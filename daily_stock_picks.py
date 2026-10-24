@@ -51,7 +51,22 @@ def get_daily_top3_picks(force_refresh: bool = False) -> List[Dict[str, Any]]:
     history = load_picks_history()
 
     if not force_refresh and today_str in history and history[today_str].get("picks"):
-        return history[today_str]["picks"]
+        picks = history[today_str]["picks"]
+        for p in picks:
+            c = int(p.get("last_price", 1000))
+            sup = int(p.get("support", int(c * 0.96)))
+            tgt = int(p.get("target", int(c * 1.08)))
+            if sup < c and (c - sup) / c <= 0.06:
+                sl = int(sup * 0.985)
+            else:
+                sl = int(c * 0.952)
+            p["stop_loss"] = p.get("stop_loss", sl)
+            risk_pct = round(((c - p["stop_loss"]) / c) * 100, 1) if c > 0 else 4.8
+            gain_pct = round(((tgt - c) / c) * 100, 1) if c > 0 else 7.5
+            p["risk_pct"] = risk_pct if risk_pct > 0 else 4.8
+            p["gain_potential_pct"] = gain_pct
+            p["risk_reward"] = round(gain_pct / risk_pct, 1) if risk_pct > 0 else 2.0
+        return picks
 
     candidates = []
     seen_tickers = set()
@@ -156,10 +171,19 @@ def get_daily_top3_picks(force_refresh: bool = False) -> List[Dict[str, Any]]:
         p["last_price"] = int(p["last_price"])
         p["support"] = int(p["support"])
         p["target"] = int(p["target"])
-        if p["last_price"] > 0:
-            p["gain_potential_pct"] = round(((p["target"] - p["last_price"]) / p["last_price"]) * 100, 1)
+        c = p["last_price"]
+        sup = p["support"]
+        tgt = p["target"]
+        if sup < c and (c - sup) / c <= 0.06:
+            sl = int(sup * 0.985)
         else:
-            p["gain_potential_pct"] = 0.0
+            sl = int(c * 0.952)
+        p["stop_loss"] = sl
+        risk_pct = round(((c - sl) / c) * 100, 1) if c > 0 else 4.8
+        gain_pct = round(((tgt - c) / c) * 100, 1) if c > 0 else 7.5
+        p["risk_pct"] = risk_pct if risk_pct > 0 else 4.8
+        p["gain_potential_pct"] = gain_pct
+        p["risk_reward"] = round(gain_pct / risk_pct, 1) if risk_pct > 0 else 2.0
 
     history[today_str] = {
         "date": today_str,
@@ -217,27 +241,38 @@ def generate_stock_pick_image(picks: List[Dict[str, Any]], date_str: str = None)
     # Stock Items
     y_positions = [0.66, 0.47, 0.28]
     for idx, (p, y) in enumerate(zip(picks[:3], y_positions)):
-        ax.text(0.20, y + 0.035, f"#{p['ticker']}", fontsize=28, fontweight="bold", color="#0F172A", va="center", zorder=3)
-        ax.text(0.20, y - 0.035, f"Last Price {p['last_price']:,}", fontsize=13, color="#475569", va="center", zorder=3)
+        # Left: Ticker, Entry, Risk:Reward
+        ax.text(0.18, y + 0.038, f"#{p['ticker']}", fontsize=25, fontweight="bold", color="#0F172A", va="center", zorder=3)
+        ax.text(0.18, y - 0.002, f"Entry: Rp {p['last_price']:,}", fontsize=12, fontweight="bold", color="#475569", va="center", zorder=3)
+        rr_val = p.get('risk_reward', 2.0)
+        ax.text(0.18, y - 0.040, f"R : R = 1 : {rr_val}", fontsize=12, fontweight="bold", color="#4F46E5", va="center", zorder=3)
 
-        ax.text(0.50, y + 0.035, "Support :", fontsize=15, fontweight="bold", color="#1E293B", va="center", zorder=3)
-        ax.text(0.67, y + 0.035, f"{p['support']:,}", fontsize=18, fontweight="bold", color="#DC2626", va="center", zorder=3)
+        # Right: Target TP, Stop Loss, Support
+        gain_str = f" (+{p.get('gain_potential_pct', 7.0)}%)"
+        risk_str = f" (-{p.get('risk_pct', 4.8)}%)"
+        sl_val = p.get('stop_loss', int(p['last_price'] * 0.95))
 
-        gain_str = f" (+{p['gain_potential_pct']}%)" if p.get('gain_potential_pct') else ""
-        ax.text(0.50, y - 0.035, "Target   :", fontsize=15, fontweight="bold", color="#1E293B", va="center", zorder=3)
-        ax.text(0.67, y - 0.035, f"{p['target']:,}{gain_str}", fontsize=17, fontweight="bold", color="#16A34A", va="center", zorder=3)
+        ax.text(0.48, y + 0.038, "Target TP  :", fontsize=13, fontweight="bold", color="#1E293B", va="center", zorder=3)
+        ax.text(0.67, y + 0.038, f"{p['target']:,}{gain_str}", fontsize=14.5, fontweight="bold", color="#16A34A", va="center", zorder=3)
 
-        div_line = patches.Rectangle((0.18, y - 0.08), 0.68, 0.003, facecolor="#4338CA", zorder=2)
+        ax.text(0.48, y - 0.002, "Stop Loss  :", fontsize=13, fontweight="bold", color="#1E293B", va="center", zorder=3)
+        ax.text(0.67, y - 0.002, f"{sl_val:,}{risk_str}", fontsize=14.5, fontweight="bold", color="#DC2626", va="center", zorder=3)
+
+        ax.text(0.48, y - 0.040, "Support    :", fontsize=11.5, color="#64748B", va="center", zorder=3)
+        ax.text(0.67, y - 0.040, f"{p['support']:,}", fontsize=12, fontweight="bold", color="#64748B", va="center", zorder=3)
+
+        div_line = patches.Rectangle((0.15, y - 0.075), 0.72, 0.0025, facecolor="#E2E8F0", zorder=2)
         ax.add_patch(div_line)
 
-    # Footer
-    ax.text(0.08, 0.13, "Analyst : RWY Capital AI Sniper System", fontsize=11, fontweight="bold", color="#1E293B", zorder=3)
-    disclaimer = (
-        "Disclaimer :\n"
-        "Seluruh informasi di atas merupakan hasil analisa algoritma kuantitatif & jejak modal Whale.\n"
-        "Bukan ajakan beli, jual, dan / atau investasi. Keputusan transaksi merupakan tanggung jawab sendiri."
-    )
-    ax.text(0.08, 0.065, disclaimer, fontsize=8.5, color="#64748B", style="italic", va="center", zorder=3)
+    # Footer Warning & Disclaimer
+    warn_box = patches.FancyBboxPatch((0.08, 0.075), 0.84, 0.085,
+                                      boxstyle="round,pad=0.01,rounding_size=0.015",
+                                      facecolor="#FEF2F2", edgecolor="#EF4444", linewidth=1.5, zorder=2)
+    ax.add_patch(warn_box)
+    ax.text(0.50, 0.130, "⚠️ DISCLAIMER : BUKAN FINANCIAL ADVICE (DYOR)", fontsize=10.5, fontweight="bold", color="#B91C1C", ha="center", va="center", zorder=3)
+    ax.text(0.50, 0.095, "Wajib Disiplin Pasang Stop Loss & Hitung Risk : Reward Ratio sebelum entry! Batasi risiko 1-2% modal.", fontsize=8.2, fontweight="bold", color="#7F1D1D", ha="center", va="center", zorder=3)
+
+    ax.text(0.08, 0.038, "Analyst : RWY Capital AI Sniper System | Keputusan investasi merupakan tanggung jawab pribadi masing-masing.", fontsize=7.8, color="#64748B", style="italic", va="center", zorder=3)
 
     buf = io.BytesIO()
     plt.savefig(buf, format="png", dpi=220, bbox_inches="tight", facecolor=fig.get_facecolor(), edgecolor="none")
@@ -321,11 +356,6 @@ def evaluate_daily_result(target_date: str = None) -> Dict[str, Any]:
         "win_rate": win_rate,
         "avg_max_gain": avg_max_gain
     }
-
-    if target_date in history:
-        history[target_date]["evaluation"] = eval_summary
-        save_picks_history(history)
-
     return eval_summary
 
 
@@ -333,7 +363,6 @@ def generate_daily_result_image(eval_data: Dict[str, Any]) -> bytes:
     date_str = eval_data.get("date", _get_today_str())
     results = eval_data.get("results", [])
     win_rate = eval_data.get("win_rate", 0.0)
-    avg_gain = eval_data.get("avg_max_gain", 0.0)
 
     fig = plt.figure(figsize=(7.5, 9.6), dpi=220)
     ax = fig.add_axes([0, 0, 1, 1])
@@ -343,42 +372,40 @@ def generate_daily_result_image(eval_data: Dict[str, Any]) -> bytes:
     bg_box = patches.Rectangle((0, 0), 1, 1, facecolor="#F8FAFD", edgecolor="none", zorder=0)
     ax.add_patch(bg_box)
 
-    top_bar = patches.Rectangle((0, 0.985), 1, 0.015, facecolor="#10B981", edgecolor="none", zorder=1)
+    top_bar = patches.Rectangle((0, 0.985), 1, 0.015, facecolor="#059669", edgecolor="none", zorder=1)
     ax.add_patch(top_bar)
 
-    # Logo
-    circle_outer = patches.Circle((0.14, 0.88), 0.055, facecolor="#ECFDF5", edgecolor="#10B981", linewidth=2.5, zorder=2)
+    # Logo mark
+    circle_outer = patches.Circle((0.14, 0.88), 0.055, facecolor="#ECFDF5", edgecolor="#059669", linewidth=2.5, zorder=2)
     ax.add_patch(circle_outer)
-    circle_inner = patches.Circle((0.14, 0.88), 0.035, facecolor="#10B981", edgecolor="none", zorder=3)
+    circle_inner = patches.Circle((0.14, 0.88), 0.035, facecolor="#059669", edgecolor="none", zorder=3)
     ax.add_patch(circle_inner)
     ax.text(0.14, 0.88, "RWY", fontsize=11, fontweight="bold", color="#FFFFFF", ha="center", va="center", zorder=4)
-    ax.text(0.14, 0.81, "Cuan Cuy!", fontsize=12, fontweight="bold", color="#059669", ha="center", va="center", zorder=4)
+    ax.text(0.14, 0.81, "Result", fontsize=12, fontweight="bold", color="#059669", ha="center", va="center", zorder=4)
 
     # Title
     ax.text(0.48, 0.89, "Daily", fontsize=28, fontweight="bold", color="#0F172A", ha="center", va="center", zorder=3)
-    ax.text(0.48, 0.83, "Result Hari Ini", fontsize=25, fontweight="bold", color="#059669", ha="center", va="center", zorder=3)
+    ax.text(0.48, 0.83, "Result Hari Ini", fontsize=26, fontweight="bold", color="#059669", ha="center", va="center", zorder=3)
 
+    # Date
     ax.text(0.88, 0.89, date_str, fontsize=13, fontweight="bold", color="#334155", ha="right", va="center", zorder=3)
-    ax.text(0.88, 0.84, "Penutupan Pasar", fontsize=11, color="#64748B", ha="right", va="center", zorder=3)
+    ax.text(0.88, 0.84, "Penutupan Bursa", fontsize=11, color="#64748B", ha="right", va="center", zorder=3)
 
-    # Stats banner
-    banner = patches.FancyBboxPatch((0.12, 0.72), 0.76, 0.065,
-                                    boxstyle="round,pad=0.015,rounding_size=0.02",
-                                    facecolor="#0F172A", edgecolor="none", zorder=2)
-    ax.add_patch(banner)
-    ax.text(0.32, 0.752, f"Target Win Rate: {win_rate:.0f}%", fontsize=12, fontweight="bold", color="#F8FAFC", ha="center", va="center", zorder=3)
-    ax.text(0.68, 0.752, f"Rata-rata Max Cuan: +{avg_gain:.1f}%", fontsize=12, fontweight="bold", color="#34D399", ha="center", va="center", zorder=3)
+    # Win rate badge banner
+    badge_bg = patches.FancyBboxPatch((0.15, 0.74), 0.70, 0.055, boxstyle="round,pad=0.01,rounding_size=0.02", facecolor="#ECFDF5", edgecolor="#10B981", linewidth=1.5, zorder=2)
+    ax.add_patch(badge_bg)
+    ax.text(0.50, 0.767, f"TARGET WIN RATE: {win_rate:.0f}%  ({eval_data.get('hit_target_count', 0)}/3 Capai TP)", fontsize=13, fontweight="bold", color="#065F46", ha="center", va="center", zorder=3)
 
-    # Stock Result Rows
-    y_positions = [0.58, 0.41, 0.24]
+    # Items
+    y_positions = [0.62, 0.45, 0.28]
     for idx, (r, y) in enumerate(zip(results[:3], y_positions)):
-        is_hit = r["hit_target"]
+        ax.text(0.20, y + 0.035, f"#{r['ticker']}", fontsize=28, fontweight="bold", color="#0F172A", va="center", zorder=3)
+        ax.text(0.20, y - 0.010, f"Entry: {r['entry_price']:,}", fontsize=12, color="#475569", va="center", zorder=3)
+        ax.text(0.20, y - 0.035, f"Target: {r['target']:,}", fontsize=12, color="#059669", fontweight="bold", va="center", zorder=3)
 
-        ax.text(0.18, y + 0.035, f"#{r['ticker']}", fontsize=26, fontweight="bold", color="#0F172A", va="center", zorder=3)
-        ax.text(0.18, y - 0.035, f"Entry {r['entry_price']:,} | Target {r['target']:,}", fontsize=11.5, color="#64748B", va="center", zorder=3)
-
-        gain_str = f"+{r['max_gain_pct']}%" if r['max_gain_pct'] >= 0 else f"{r['max_gain_pct']}%"
+        is_hit = r['hit_target']
         status_text = "TARGET HIT!" if is_hit else ("PROFIT" if r['close_gain_pct'] > 0 else "KONSOLIDASI")
+        gain_str = f"+{r['max_gain_pct']:.1f}%" if r['max_gain_pct'] >= 0 else f"{r['max_gain_pct']:.1f}%"
         status_col = "#059669" if is_hit else ("#0284C7" if r['close_gain_pct'] > 0 else "#64748B")
 
         # Badge pill
@@ -425,16 +452,28 @@ def format_daily_stock_pick_caption(picks: List[Dict[str, Any]], date_str: str =
     ]
 
     for idx, p in enumerate(picks[:3], 1):
-        gain_str = f"+{p['gain_potential_pct']}%" if p.get('gain_potential_pct') else ""
+        gain_str = f"+{p.get('gain_potential_pct', 0)}%"
+        risk_str = f"-{p.get('risk_pct', 4.8)}%"
+        rr_str = f"1 : {p.get('risk_reward', 2.0)}"
+        sl_val = p.get('stop_loss', int(p['last_price'] * 0.95))
         lines.append(
-            f"<b>{idx}. #{p['ticker']}</b> (<code>Rp {p['last_price']:,}</code>)\n"
-            f"   • 🛡️ <b>Support:</b> <code>Rp {p['support']:,}</code>\n"
-            f"   • 🎯 <b>Target :</b> <code>Rp {p['target']:,}</code> (<b>{gain_str}</b>)\n"
-            f"   • 💡 <i>Katalis: {p['reason']}</i>\n"
+            f"<b>{idx}. #{p['ticker']}</b> — <code>Entry: Rp {p['last_price']:,}</code>\n"
+            f"   • 🎯 <b>Target TP   :</b> <code>Rp {p['target']:,}</code> (<b>{gain_str}</b>)\n"
+            f"   • ⛔ <b>Stop Loss   :</b> <code>Rp {sl_val:,}</code> (<b>{risk_str}</b>) <i>[Wajib Pasang!]</i>\n"
+            f"   • ⚖️ <b>Risk:Reward :</b> <b>{rr_str}</b>\n"
+            f"   • 🛡️ <b>Support     :</b> <code>Rp {p['support']:,}</code>\n"
+            f"   • 💡 <i>Katalis     : {p['reason']}</i>\n"
         )
 
     lines.append("━━━━━━━━━━━━━━━━━━━")
-    lines.append("💡 <i>Ketik <code>/scan KODE</code> (misal: <code>/scan {0}</code>) untuk melihat trading plan & chart.</i>".format(picks[0]['ticker'] if picks else 'BBCA'))
+    lines.append(
+        "⚠️ <b>PENGINGAT MANAJEMEN RISIKO &amp; DISCLAIMER:</b>\n"
+        "• <b>BUKAN FINANCIAL ADVICE (DYOR):</b> Seluruh analisis adalah hasil komputasi algoritma &amp; data kuantitatif, bukan ajakan jual/beli.\n"
+        "• <b>DISIPLIN STOP LOSS:</b> Selalu pasang Stop Loss ketat saat entry. Modal Anda adalah nyawa trading Anda!\n"
+        "• <b>HITUNG RISK : REWARD:</b> Pastikan rasio R:R minimal 1 : 1.5. Batasi risiko maksimal 1–2% dari modal per transaksi."
+    )
+    lines.append("━━━━━━━━━━━━━━━━━━━")
+    lines.append("💡 <i>Ketik <code>/scan KODE</code> (misal: <code>/scan {0}</code>) untuk kalkulasi money management &amp; chart.</i>".format(picks[0]['ticker'] if picks else 'BBCA'))
     return "\n".join(lines)
 
 
