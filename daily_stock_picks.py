@@ -1,7 +1,7 @@
 import os
 import json
 import io
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Any
 
 try:
@@ -19,6 +19,57 @@ from signal_engine import fetch_stock_data, calculate_support_resistance
 from ara_hunter import scan_ara_hunter_picks
 from hedgefund_radar import scan_hedgefund_picks
 from whale_radar import scan_top_whale_accumulations
+
+def get_target_trading_day() -> dict:
+    now = datetime.now(WIB) if WIB else datetime.now()
+    wd = now.weekday()
+    hour = now.hour
+    is_weekend = wd in (5, 6)
+
+    if wd == 5:
+        target_dt = now + timedelta(days=2)
+        target_label = "Buka Bursa Senin"
+        is_prep = True
+    elif wd == 6:
+        target_dt = now + timedelta(days=1)
+        target_label = "Buka Bursa Senin"
+        is_prep = True
+    elif wd == 4 and hour >= 16:
+        target_dt = now + timedelta(days=3)
+        target_label = "Buka Bursa Senin"
+        is_prep = True
+    elif wd in (0, 1, 2, 3) and hour >= 16:
+        target_dt = now + timedelta(days=1)
+        next_day = ["Selasa", "Rabu", "Kamis", "Jumat"][wd]
+        target_label = f"Buka Bursa {next_day}"
+        is_prep = True
+    else:
+        day_names = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat"]
+        day_name = day_names[wd] if wd < 5 else "Senin"
+        target_dt = now
+        target_label = f"Hari Ini ({day_name})"
+        is_prep = False
+
+    DAY_MAP_ID = {0: "Senin", 1: "Selasa", 2: "Rabu", 3: "Kamis", 4: "Jumat", 5: "Sabtu", 6: "Minggu"}
+    MONTH_MAP_ID = {1: "Januari", 2: "Februari", 3: "Maret", 4: "April", 5: "Mei", 6: "Juni", 7: "Juli", 8: "Agustus", 9: "September", 10: "Oktober", 11: "November", 12: "Desember"}
+    MONTH_MAP_EN = {1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun", 7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"}
+
+    t_day_name = DAY_MAP_ID[target_dt.weekday()]
+    t_month_name = MONTH_MAP_ID[target_dt.month]
+    t_month_en = MONTH_MAP_EN[target_dt.month]
+
+    formatted_id = f"{t_day_name}, {target_dt.day} {t_month_name} {target_dt.year}"
+    formatted_en = f"{target_dt.day} {t_month_en} {target_dt.year}"
+
+    return {
+        "target_date_str": target_dt.strftime("%Y-%m-%d"),
+        "formatted_id": formatted_id,
+        "formatted_en": formatted_en,
+        "is_weekend": is_weekend,
+        "is_prep": is_prep,
+        "target_label": target_label,
+        "target_day_name": t_day_name
+    }
 
 PICKS_HISTORY_FILE = os.path.join(os.path.dirname(__file__), "daily_picks_history.json")
 
@@ -195,9 +246,9 @@ def get_daily_top3_picks(force_refresh: bool = False) -> List[Dict[str, Any]]:
 
 
 def generate_stock_pick_image(picks: List[Dict[str, Any]], date_str: str = None) -> bytes:
+    t_info = get_target_trading_day()
     if not date_str:
-        now = datetime.now(WIB) if WIB else datetime.now()
-        date_str = now.strftime("%b %d, %Y")
+        date_str = f"{t_info['target_day_name']}, {t_info['formatted_en']}"
 
     fig = plt.figure(figsize=(7.5, 9.6), dpi=220)
     ax = fig.add_axes([0, 0, 1, 1])
@@ -219,12 +270,17 @@ def generate_stock_pick_image(picks: List[Dict[str, Any]], date_str: str = None)
     ax.text(0.14, 0.81, "Cuan Cuy!", fontsize=12, fontweight="bold", color="#4F46E5", ha="center", va="center", zorder=4)
 
     # Title
-    ax.text(0.48, 0.89, "Daily", fontsize=28, fontweight="bold", color="#0F172A", ha="center", va="center", zorder=3)
-    ax.text(0.48, 0.83, "Stock Pick", fontsize=28, fontweight="bold", color="#0F172A", ha="center", va="center", zorder=3)
+    if t_info["is_prep"]:
+        ax.text(0.48, 0.89, "Watchlist", fontsize=27, fontweight="bold", color="#0F172A", ha="center", va="center", zorder=3)
+        ax.text(0.48, 0.83, f"Buka Bursa {t_info['target_day_name']}", fontsize=21, fontweight="bold", color="#4F46E5", ha="center", va="center", zorder=3)
+    else:
+        ax.text(0.48, 0.89, "Daily", fontsize=28, fontweight="bold", color="#0F172A", ha="center", va="center", zorder=3)
+        ax.text(0.48, 0.83, "Stock Pick", fontsize=28, fontweight="bold", color="#0F172A", ha="center", va="center", zorder=3)
 
     # Date
-    ax.text(0.88, 0.89, date_str, fontsize=13, fontweight="bold", color="#334155", ha="right", va="center", zorder=3)
-    ax.text(0.88, 0.84, "08:30 WIB", fontsize=11, color="#64748B", ha="right", va="center", zorder=3)
+    ax.text(0.88, 0.89, date_str, fontsize=12, fontweight="bold", color="#334155", ha="right", va="center", zorder=3)
+    time_label = "Buka Sesi 1" if t_info["is_prep"] else "08:30 WIB"
+    ax.text(0.88, 0.84, time_label, fontsize=10.5, color="#64748B", ha="right", va="center", zorder=3)
 
     # Decorative dots
     for i in range(3):
@@ -439,17 +495,27 @@ def generate_daily_result_image(eval_data: Dict[str, Any]) -> bytes:
 
 
 def format_daily_stock_pick_caption(picks: List[Dict[str, Any]], date_str: str = None) -> str:
+    t_info = get_target_trading_day()
     if not date_str:
-        now = datetime.now(WIB) if WIB else datetime.now()
-        date_str = now.strftime("%d %B %Y")
+        date_str = t_info["formatted_id"]
 
-    lines = [
-        "📋 <b>DAILY STOCK PICK HARI INI (08:30 WIB)</b> 🎯",
-        f"📅 <i>Tanggal: {date_str} (30 Menit Menuju Buka Sesi 1)</i>",
-        "━━━━━━━━━━━━━━━━━━━",
-        "Berikut 3 saham terbaik hasil screening algoritma AI & Whale Accumulation:",
-        ""
-    ]
+    if t_info["is_prep"]:
+        lines = [
+            f"📋 <b>DAILY STOCK PICK — PERSIAPAN BUKA BURSA HARI {t_info['target_day_name'].upper()}</b> 🎯",
+            f"📅 <b>Target Trading:</b> <code>{t_info['formatted_id']} (Buka Sesi 1 09:00 WIB)</code>",
+            f"🏖️ <i>Catatan: Bursa saat ini sedang libur akhir pekan. 3 saham di bawah ini adalah rekomendasi watchlist terkuat untuk eksekusi saat bursa dibuka kembali hari {t_info['target_day_name']} pagi!</i>",
+            "━━━━━━━━━━━━━━━━━━━",
+            f"<b>Rekomendasi 3 Saham Pilihan untuk Hari {t_info['target_day_name']}:</b>",
+            ""
+        ]
+    else:
+        lines = [
+            "📋 <b>DAILY STOCK PICK HARI INI (08:30 WIB)</b> 🎯",
+            f"📅 <i>Tanggal: {date_str} (30 Menit Menuju Buka Sesi 1)</i>",
+            "━━━━━━━━━━━━━━━━━━━",
+            "Berikut 3 saham terbaik hasil screening algoritma AI & Whale Accumulation:",
+            ""
+        ]
 
     for idx, p in enumerate(picks[:3], 1):
         gain_str = f"+{p.get('gain_potential_pct', 0)}%"
@@ -478,23 +544,36 @@ def format_daily_stock_pick_caption(picks: List[Dict[str, Any]], date_str: str =
 
 
 def format_daily_result_caption(eval_data: Dict[str, Any], date_str: str = None) -> str:
-    if not date_str:
-        date_str = eval_data.get("date", _get_today_str())
+    now = datetime.now(WIB) if WIB else datetime.now()
+    is_weekend = now.weekday() in (5, 6)
 
     results = eval_data.get("results", [])
     win_rate = eval_data.get("win_rate", 0.0)
     avg_gain = eval_data.get("avg_max_gain", 0.0)
 
-    lines = [
-        "🌇 <b>DAILY RESULT &amp; EVALUASI STOCK PICK HARI INI (16:15 WIB)</b> 📊",
-        f"📅 <i>Tanggal: {date_str} (Penutupan Bursa)</i>",
-        "━━━━━━━━━━━━━━━━━━━",
-        f"🏆 <b>Target Win Rate:</b> <b>{win_rate:.0f}%</b> ({eval_data.get('hit_target_count', 0)}/{len(results)} Capai Target TP)",
-        f"🚀 <b>Rata-rata Maks Gain:</b> <b>+{avg_gain:.2f}%</b>",
-        "━━━━━━━━━━━━━━━━━━━",
-        "<b>Rincian Hasil 3 Saham Pilihan Pagi Ini:</b>",
-        ""
-    ]
+    if is_weekend:
+        lines = [
+            "🌇 <b>DAILY RESULT EVALUASI PENUTUPAN TERAKHIR (JUMAT)</b> 📊",
+            "📅 <i>Sesi Evaluasi: Penutupan Bursa Terakhir (Jumat Sesi 2)</i>",
+            "🏖️ <i>Catatan: Bursa libur akhir pekan. Data di bawah mengevaluasi hasil kinerja sesi bursa terakhir.</i>",
+            "━━━━━━━━━━━━━━━━━━━",
+            f"🏆 <b>Target Win Rate:</b> <b>{win_rate:.0f}%</b> ({eval_data.get('hit_target_count', 0)}/{len(results)} Capai Target TP)",
+            f"🚀 <b>Rata-rata Maks Gain:</b> <b>+{avg_gain:.2f}%</b>",
+            "━━━━━━━━━━━━━━━━━━━",
+            "<b>Rincian Hasil Kinerja Saham:</b>",
+            ""
+        ]
+    else:
+        lines = [
+            "🌇 <b>DAILY RESULT &amp; EVALUASI STOCK PICK HARI INI (16:15 WIB)</b> 📊",
+            f"📅 <i>Tanggal: {date_str or eval_data.get('date', _get_today_str())} (Penutupan Bursa)</i>",
+            "━━━━━━━━━━━━━━━━━━━",
+            f"🏆 <b>Target Win Rate:</b> <b>{win_rate:.0f}%</b> ({eval_data.get('hit_target_count', 0)}/{len(results)} Capai Target TP)",
+            f"🚀 <b>Rata-rata Maks Gain:</b> <b>+{avg_gain:.2f}%</b>",
+            "━━━━━━━━━━━━━━━━━━━",
+            "<b>Rincian Hasil 3 Saham Pilihan Pagi Ini:</b>",
+            ""
+        ]
 
     for idx, r in enumerate(results[:3], 1):
         status_tag = "🎯 <b>TARGET HIT!</b>" if r['hit_target'] else ("🟢 <b>PROFIT</b>" if r['close_gain_pct'] > 0 else "🟡 <b>KONSOLIDASI</b>")
