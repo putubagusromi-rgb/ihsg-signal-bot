@@ -1442,6 +1442,13 @@ def scheduled_worker():
     while True:
         try:
             now = datetime.now(WIB) if WIB else datetime.now()
+
+            # Bursa Efek Indonesia (IDX) HANYA BUKA Senin s/d Jumat (weekday 0 s/d 4)
+            # Sabtu (5) dan Minggu (6) bursa tutup -> jangan kirim sinyal otomatis terjadwal
+            if now.weekday() >= 5:
+                time.sleep(60)
+                continue
+
             now_str = now.strftime("%H:%M")
             today_str = now.strftime("%Y-%m-%d")
 
