@@ -63,14 +63,15 @@ def fetch_stock_news(ticker: str, limit: int = 3) -> List[Dict[str, str]]:
     return news_items
 
 
-def analyze_news_sentiment(ticker: str) -> Dict[str, Any]:
-    news_list = fetch_stock_news(ticker, limit=4)
+def analyze_news_sentiment(ticker: str = "IHSG") -> Dict[str, Any]:
+    clean_sym = ticker.replace(".JK", "").strip().upper() if ticker else "IHSG"
+    news_list = fetch_stock_news(clean_sym, limit=4)
     if not news_list:
         return {
             "has_news": False,
             "sentiment": "NETRAL (SEPI BERITA)",
             "sentiment_score": 50,
-            "badge": "⚪ SEPI",
+            "badge": "🟡 NETRAL",
             "catalyst_summary": "Tidak ada berita besar terkini. Jika volume naik, ini tanda akumulasi senyap (Silent Accumulation).",
             "headlines": []
         }
@@ -131,3 +132,39 @@ def analyze_news_sentiment(ticker: str) -> Dict[str, Any]:
         "catalyst_summary": catalyst,
         "headlines": headlines_analyzed
     }
+
+
+def format_news_sentiment_message(data: Dict[str, Any], target_name: str = "IHSG Pasar Umum") -> str:
+    score = data.get("sentiment_score", 50)
+    badge = data.get("badge", "🟡 NETRAL")
+    catalyst = data.get("catalyst_summary", "")
+    headlines = data.get("headlines", [])
+
+    filled = max(1, min(10, int(score / 10)))
+    empty = 10 - filled
+    bar = "🟩" * filled + "⬜" * empty
+
+    lines = [
+        "📰 <b>AI NEWS SENTIMENT &amp; KATALIS PASAR</b> 📊",
+        f"🎯 <b>Fokus:</b> <code>{target_name.upper()}</code>",
+        "━━━━━━━━━━━━━━━━━━━",
+        f"📈 <b>Skor Sentimen AI:</b> <b>{score}%</b> {badge}",
+        f"   [{bar}]",
+        f"💡 <i>{catalyst}</i>",
+        "━━━━━━━━━━━━━━━━━━━",
+        "📑 <b>Berita Terhangat &amp; Media Radar:</b>",
+        ""
+    ]
+
+    if not headlines:
+        lines.append("<i>Belum ada berita baru terdeteksi dalam 24 jam terakhir.</i>")
+    else:
+        for idx, h in enumerate(headlines[:4], 1):
+            lines.append(
+                f"{h['tag']} <b>{h['title']}</b>\n"
+                f"   🏛️ <i>Sumber: {h['source']} | {h['date']}</i>\n"
+            )
+
+    lines.append("━━━━━━━━━━━━━━━━━━━")
+    lines.append("💡 <i>Strategi: 'Buy on rumor, sell on news'. Jangan FOMO jika berita positif keluar saat harga sudah naik tinggi!</i>")
+    return "\n".join(lines)
