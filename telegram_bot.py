@@ -23,12 +23,13 @@ from config import (
     ALL_IDX_TICKERS,
     INDICATOR_CONFIG
 )
-from signal_engine import analyze_ihsg, analyze_single_stock, scan_whale_watchlist
+from news_sentiment import analyze_news_sentiment, format_news_sentiment_message
 from insider_radar import (
     fetch_insider_corporate_actions,
     scan_undervalued_stocks,
     scan_high_dividend_stocks,
-    get_single_stock_valuation
+    get_single_stock_valuation,
+    format_dividend_hunter_message
 )
 from advanced_tools import (
     generate_stock_chart,
