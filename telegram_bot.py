@@ -1308,23 +1308,19 @@ def _handle_telegram_command_impl(command_text: str, chat_id: str):
         sectors = scan_sector_rotation()
         send_long_telegram_message(format_sector_rotation_message(sectors), chat_id)
 
-    elif cmd in ["/dividen"]:
-        send_telegram_message("⏳ <i>Memindai saham 'Cash Cow' dengan Dividend Yield tertinggi...</i>", chat_id)
-        stocks = scan_high_dividend_stocks(LQ45_WATCHLIST, limit=5)
-        lines = [
-            "💰 <b>DIVIDEND HUNTER (CASH COW SCREENER)</b>",
-            "<i>Saham dengan yield pembagian dividen tunai paling royal:</i>",
-            "━━━━━━━━━━━━━━━━━━━"
-        ]
-        for idx, s in enumerate(stocks, 1):
-            lines.append(
-                f"<b>{idx}. #{s['ticker']}</b> (<code>Rp{int(s['price']):,}</code>)\n"
-                f"   • Estimasi Yield: <b>{s['yield']}%</b> | Nilai: <code>Rp{s['dividend_value']:,}</code>\n"
-                f"   • Kategori: 🏷️ <b>{s['category']}</b>\n"
-            )
-        lines.append("━━━━━━━━━━━━━━━━━━━")
-        lines.append("💡 <i>Ketik <code>/scan KODE</code> untuk cek kapan waktu terbaik masuk sebelum cum-date.</i>")
-        send_long_telegram_message("\n".join(lines), chat_id)
+    elif cmd in ["/dividen", "/yield"]:
+        send_telegram_message("💰 <i>Memindai radar saham Cash Cow dividen jumbo & aksi korporasi...</i>", chat_id)
+        stocks = scan_high_dividend_stocks(limit=5)
+        actions = fetch_insider_corporate_actions(limit=3)
+        msg = format_dividend_hunter_message(stocks, actions)
+        send_long_telegram_message(msg, chat_id)
+
+    elif cmd in ["/news", "/sentimen", "/berita"]:
+        target = parts[1].upper() if len(parts) > 1 else "IHSG"
+        send_telegram_message(f"📰 <i>Menganalisis sentimen media & berita terkini untuk #{esc(target)}...</i>", chat_id)
+        data_news = analyze_news_sentiment(target)
+        msg = format_news_sentiment_message(data_news, target_name=target)
+        send_long_telegram_message(msg, chat_id)
 
     elif cmd in ["/daily"]:
         send_telegram_message("⏳ <i>Menyiapkan laporan harian komprehensif pasar...</i>", chat_id)
