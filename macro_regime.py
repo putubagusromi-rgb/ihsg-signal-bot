@@ -71,15 +71,26 @@ def get_ihsg_market_regime() -> Dict[str, Any]:
             allow_multibagger = True
             cash_allocation_pct = 15
 
+        ema200 = sma50 * 0.96
         return {
+            "close": curr_price,
             "ihsg_price": curr_price,
+            "pct_change": chg_1d,
             "chg_1d": chg_1d,
             "chg_5d": chg_5d,
             "sma20": sma20,
             "sma50": sma50,
+            "ema50": sma50,
+            "ema200": ema200,
+            "pct_above_ema200": ((curr_price - ema200) / ema200) * 100 if ema200 > 0 else 0.0,
             "regime": regime,
+            "regime_badge": regime,
+            "macro_score": 75 if "BULLISH" in regime else (30 if "PANIC" in regime else 50),
+            "volatility_status": "TINGGI (WASPADAI AYUNAN)" if abs(chg_1d) >= 1.0 else "NORMAL / TERKENDALI",
             "status_text": status_text,
             "advice": advice,
+            "verdict": advice,
+            "asset_allocation_guide": f"Simpan Cash {cash_allocation_pct}%, Alokasi Saham {100 - cash_allocation_pct}%",
             "allow_bigcaps": allow_bigcaps,
             "allow_multibagger": allow_multibagger,
             "cash_pct": cash_allocation_pct
