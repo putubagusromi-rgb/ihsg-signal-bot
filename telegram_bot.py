@@ -23,6 +23,11 @@ from config import (
     ALL_IDX_TICKERS,
     INDICATOR_CONFIG
 )
+from signal_engine import (
+    analyze_ihsg,
+    scan_whale_watchlist,
+    analyze_single_stock
+)
 from news_sentiment import analyze_news_sentiment, format_news_sentiment_message
 from insider_radar import (
     fetch_insider_corporate_actions,
@@ -722,10 +727,14 @@ def format_multibagger_scan_message(picks: list) -> str:
         "━━━━━━━━━━━━━━━━━━━"
     ]
     for idx, p in enumerate(picks, 1):
+        price = p.get("price") or p.get("close", 0)
+        score = p.get("bagger_score") or p.get("mb_score", 0)
+        badge = p.get("badge") or p.get("phase_badge", "🟢 POTENSIAL")
+        catalyst = p.get("catalyst") or p.get("verdict", "Akumulasi Whale")
         lines.append(
-            f"<b>{idx}. #{p['ticker']}</b> (<code>Rp{int(p['price']):,}</code> | Skor: <code>{p['bagger_score']}/100</code>)\n"
-            f"   • Status: {p['badge']}\n"
-            f"   • Katalis: <i>{p['catalyst']}</i>\n"
+            f"<b>{idx}. #{p.get('ticker', 'SAHAM')}</b> (<code>Rp{int(price):,}</code> | Skor: <code>{score}/100</code>)\n"
+            f"   • Status: {badge}\n"
+            f"   • Katalis: <i>{catalyst}</i>\n"
         )
     lines.append("━━━━━━━━━━━━━━━━━━━")
     lines.append("💡 <i>Ketik <code>/bagger KODE</code> (misal: <code>/bagger CUAN</code>) untuk bedah katalis lengkap.</i>")
@@ -765,22 +774,33 @@ def format_ihsg_regime_message(data: dict) -> str:
     if "error" in data:
         return f"❌ <b>Gagal Mendiagnosis Rezim IHSG:</b> {data['error']}"
 
-    chg_sym = "+" if data["pct_change"] >= 0 else ""
+    close = data.get("close") or data.get("ihsg_price", 0.0)
+    pct_chg = data.get("pct_change") if data.get("pct_change") is not None else data.get("chg_1d", 0.0)
+    chg_sym = "+" if pct_chg >= 0 else ""
+    regime_badge = data.get("regime_badge") or data.get("regime", "🟡 NETRAL / KONSOLIDASI")
+    macro_score = data.get("macro_score", 65)
+    vol_status = data.get("volatility_status", "NORMAL / TERKENDALI")
+    ema50 = data.get("ema50") or data.get("sma50", close * 0.98)
+    ema200 = data.get("ema200", close * 0.95)
+    pct_above_ema200 = data.get("pct_above_ema200", 2.5)
+    verdict = data.get("verdict") or data.get("advice", "Pantau pergerakan pasar secara selektif.")
+    alloc = data.get("asset_allocation_guide") or f"Cash: {data.get('cash_pct', 30)}%, Saham: {100 - data.get('cash_pct', 30)}%"
+
     lines = [
         "🌐 <b>DIAGNOSIS KESEHATAN PASAR &amp; REZIM IHSG</b> 🛡️",
-        f"📅 <i>Indeks IHSG: {data['close']:,.2f} ({chg_sym}{data['pct_change']:.2f}%)</i>",
+        f"📅 <i>Indeks IHSG: {close:,.2f} ({chg_sym}{pct_chg:.2f}%)</i>",
         "━━━━━━━━━━━━━━━━━━━",
-        f"🏷️ <b>Status Pasar:</b> {data['regime_badge']}",
-        f"🎯 <b>Skor Kesehatan Makro:</b> <code>{data['macro_score']}/100</code>",
-        f"⚡ <b>Indikator Volatilitas:</b> <b>{data['volatility_status']}</b>",
+        f"🏷️ <b>Status Pasar:</b> {regime_badge}",
+        f"🎯 <b>Skor Kesehatan Makro:</b> <code>{macro_score}/100</code>",
+        f"⚡ <b>Indikator Volatilitas:</b> <b>{vol_status}</b>",
         "━━━━━━━━━━━━━━━━━━━",
         "📊 <b>LEVEL SUPPORT &amp; CRASH DEFENSE:</b>",
-        f"• Support EMA 50: <code>{data['ema50']:,.2f}</code>",
-        f"• Fortress Level (EMA 200): <code>{data['ema200']:,.2f}</code>",
-        f"• Posisi vs EMA 200: <b>{data['pct_above_ema200']:+.2f}%</b>",
+        f"• Support EMA 50: <code>{ema50:,.2f}</code>",
+        f"• Fortress Level (EMA 200): <code>{ema200:,.2f}</code>",
+        f"• Posisi vs EMA 200: <b>{pct_above_ema200:+.2f}%</b>",
         "━━━━━━━━━━━━━━━━━━━",
-        f"📖 <b>DIAGNOSA KONDISI:</b>\n<i>{data['verdict']}</i>\n",
-        f"💡 <b>PANDUAN ALOKASI ASET:</b>\n👉 <i>{data['asset_allocation_guide']}</i>"
+        f"📖 <b>DIAGNOSA KONDISI:</b>\n<i>{verdict}</i>\n",
+        f"💡 <b>PANDUAN ALOKASI ASET:</b>\n👉 <i>{alloc}</i>"
     ]
     return "\n".join(lines)
 
@@ -875,19 +895,20 @@ def handle_telegram_callback(callback_query: dict):
         if "error" in data_val:
             send_telegram_message(f"❌ {data_val['error']}", chat_id)
         else:
-            chg_sym = "+" if data_val["pct_change"] >= 0 else ""
+            chg_val = data_val.get("pct_change", 0.0)
+            chg_sym = "+" if chg_val >= 0 else ""
             msg = (
-                f"💎 <b>VALUASI FUNDAMENTAL: #{data_val['ticker']}</b>\n"
-                f"📅 <i>Harga: Rp{int(data_val['price']):,} ({chg_sym}{data_val['pct_change']:.2f}%)</i>\n"
+                f"💎 <b>VALUASI FUNDAMENTAL: #{data_val.get('ticker', ticker)}</b>\n"
+                f"📅 <i>Harga: Rp{int(data_val.get('price', 0)):,} ({chg_sym}{chg_val:.2f}%)</i>\n"
                 "━━━━━━━━━━━━━━━━━━━\n"
                 f"📊 <b>Rasio Utama:</b>\n"
-                f"• PBV: <code>{data_val['pbv']}x</code>\n"
-                f"• PER: <code>{data_val['per']}x</code>\n"
-                f"• Dividend Yield: <code>{data_val['dividend_yield']}%</code>\n"
-                f"• Market Cap: <code>Rp{data_val['market_cap_t']:.2f} Triliun</code>\n"
+                f"• PBV: <code>{data_val.get('pbv', 0)}x</code>\n"
+                f"• PER: <code>{data_val.get('per', 0)}x</code>\n"
+                f"• Dividend Yield: <code>{data_val.get('dividend_yield', 0)}%</code>\n"
+                f"• Market Cap: <code>Rp{data_val.get('market_cap_t', 0):.2f} Triliun</code>\n"
                 "━━━━━━━━━━━━━━━━━━━\n"
-                f"🏷️ <b>Status Valuasi:</b> <b>{data_val['status']}</b>\n"
-                f"💡 <i>{data_val['verdict']}</i>"
+                f"🏷️ <b>Status Valuasi:</b> <b>{data_val.get('status', 'WAJAR')}</b>\n"
+                f"💡 <i>{data_val.get('verdict', '')}</i>"
             )
             kb = make_stock_inline_keyboard(ticker)
             send_telegram_message(msg, chat_id, reply_markup=kb)
@@ -981,6 +1002,15 @@ def handle_telegram_callback(callback_query: dict):
                 lines.append(f"{a['badge']} <b>{a['category']}</b>\n👉 {a['title']} <i>({a['source']})</i>\n")
             lines.append("━━━━━━━━━━━━━━━━━━━")
             send_long_telegram_message("\n".join(lines), chat_id)
+        elif target == "dividen":
+            stocks = scan_high_dividend_stocks(limit=5)
+            actions = fetch_insider_corporate_actions(limit=3)
+            msg = format_dividend_hunter_message(stocks, actions)
+            send_long_telegram_message(msg, chat_id)
+        elif target == "news":
+            data_news = analyze_news_sentiment("IHSG")
+            msg = format_news_sentiment_message(data_news, target_name="IHSG")
+            send_long_telegram_message(msg, chat_id)
 
 
 def _handle_telegram_command_impl(command_text: str, chat_id: str):
@@ -1002,41 +1032,49 @@ def _handle_telegram_command_impl(command_text: str, chat_id: str):
         "💰 Portofolio 100 Juta": "/simulasi100jt"
     }
 
-    raw_lower = raw_text.lower()
-    if raw_text in BTN_MAP:
-        command_text = BTN_MAP[raw_text]
-    elif "3 saham" in raw_lower or "stock pick" in raw_lower or "rekomendasi" in raw_lower or "pilihan" in raw_lower:
-        command_text = "/pick"
-    elif "daily result" in raw_lower or "hasil hari ini" in raw_lower or "evaluasi" in raw_lower or raw_lower == "result":
-        command_text = "/result"
-    elif "bersih" in raw_lower or "keyboard_off" in raw_lower or "tutup tombol" in raw_lower or "sembunyi" in raw_lower:
-        command_text = "/bersih"
-    elif "keyboard_on" in raw_lower or "buka tombol" in raw_lower or raw_lower == "keyboard":
-        command_text = "/keyboard"
-    elif "ara hunter" in raw_lower or "calon ara" in raw_lower or raw_lower == "ara":
-        command_text = "/arahunter"
-    elif "watchlist" in raw_lower or "portofolioku" in raw_lower or "portofolio pribadi" in raw_lower:
-        command_text = "/watchlist"
-    elif "pantau " in raw_lower or raw_lower.startswith("/pantau"):
-        pass
-    elif "prediksi" in raw_lower or "arah ihsg" in raw_lower or "besok" in raw_lower or "arah" in raw_lower:
-        command_text = "/prediksi"
-    elif "tier list" in raw_lower:
-        command_text = "/tierlist"
-    elif "multi-bagger" in raw_lower or "multibagger" in raw_lower:
-        command_text = "/multibagger"
-    elif "status pasar" in raw_lower or "kesehatan ihsg" in raw_lower or "regime" in raw_lower:
-        command_text = "/regime"
-    elif "portofolio" in raw_lower or "100 juta" in raw_lower or "simulasi" in raw_lower:
-        command_text = "/simulasi100jt"
-    elif "top whale" in raw_lower:
-        command_text = "/whalelist"
-    elif "wyckoff" in raw_lower or "hedge fund" in raw_lower:
-        command_text = "/hedge"
-    elif "rotasi sektor" in raw_lower or "sektor" in raw_lower:
-        command_text = "/sektor"
-    elif "aksi korporasi" in raw_lower or "radar aksi" in raw_lower:
-        command_text = "/insider"
+    # Hanya jalankan pencocokan teks/tombol jika BUKAN slash command (/command ...)
+    if not raw_text.startswith("/"):
+        raw_lower = raw_text.lower()
+        if raw_text in BTN_MAP:
+            command_text = BTN_MAP[raw_text]
+        elif raw_lower in ["pick", "3 saham", "stock pick", "rekomendasi", "pilihan"]:
+            command_text = "/pick"
+        elif raw_lower in ["result", "daily result", "hasil", "evaluasi", "hasil hari ini"]:
+            command_text = "/result"
+        elif raw_lower in ["bersih", "keyboard_off", "tutup tombol", "sembunyi"]:
+            command_text = "/bersih"
+        elif raw_lower in ["keyboard", "keyboard_on", "buka tombol", "tombol"]:
+            command_text = "/keyboard"
+        elif raw_lower in ["arahunter", "ara", "ara hunter", "calon ara"]:
+            command_text = "/arahunter"
+        elif raw_lower in ["watchlist", "portofolioku", "portofolio pribadi"]:
+            command_text = "/watchlist"
+        elif raw_lower in ["prediksi", "arah ihsg", "forecast", "besok"]:
+            command_text = "/prediksi"
+        elif raw_lower in ["tierlist", "tier list", "rank"]:
+            command_text = "/tierlist"
+        elif raw_lower in ["multibagger", "multi-bagger", "bagger"]:
+            command_text = "/multibagger"
+        elif raw_lower in ["regime", "status pasar", "kesehatan ihsg"]:
+            command_text = "/regime"
+        elif raw_lower in ["simulasi", "100 juta", "simulasi100jt"]:
+            command_text = "/simulasi100jt"
+        elif raw_lower in ["whalelist", "top whale", "whale lq45"]:
+            command_text = "/whalelist"
+        elif raw_lower in ["hedge", "wyckoff", "hedge fund"]:
+            command_text = "/hedge"
+        elif raw_lower in ["sektor", "rotasi sektor"]:
+            command_text = "/sektor"
+        elif raw_lower in ["insider", "aksi korporasi", "radar aksi"]:
+            command_text = "/insider"
+        elif raw_lower in ["dividen", "yield", "dividend"]:
+            command_text = "/dividen"
+        elif raw_lower in ["news", "berita", "sentimen"]:
+            command_text = "/news"
+        elif raw_lower in ["ihsg", "market"]:
+            command_text = "/ihsg"
+        elif raw_lower in ["menu", "help", "bantuan"]:
+            command_text = "/menu"
 
     parts = command_text.strip().split()
     if not parts:
@@ -1259,19 +1297,20 @@ def _handle_telegram_command_impl(command_text: str, chat_id: str):
             if "error" in data_val:
                 send_telegram_message(f"❌ {data_val['error']}", chat_id)
                 return
-            chg_sym = "+" if data_val["pct_change"] >= 0 else ""
+            chg_val = data_val.get("pct_change", 0.0)
+            chg_sym = "+" if chg_val >= 0 else ""
             msg = (
-                f"💎 <b>VALUASI FUNDAMENTAL: #{data_val['ticker']}</b>\n"
-                f"📅 <i>Harga: Rp{int(data_val['price']):,} ({chg_sym}{data_val['pct_change']:.2f}%)</i>\n"
+                f"💎 <b>VALUASI FUNDAMENTAL: #{data_val.get('ticker', ticker)}</b>\n"
+                f"📅 <i>Harga: Rp{int(data_val.get('price', 0)):,} ({chg_sym}{chg_val:.2f}%)</i>\n"
                 "━━━━━━━━━━━━━━━━━━━\n"
                 f"📊 <b>Rasio Utama:</b>\n"
-                f"• PBV: <code>{data_val['pbv']}x</code>\n"
-                f"• PER: <code>{data_val['per']}x</code>\n"
-                f"• Dividend Yield: <code>{data_val['dividend_yield']}%</code>\n"
-                f"• Market Cap: <code>Rp{data_val['market_cap_t']:.2f} Triliun</code>\n"
+                f"• PBV: <code>{data_val.get('pbv', 0)}x</code>\n"
+                f"• PER: <code>{data_val.get('per', 0)}x</code>\n"
+                f"• Dividend Yield: <code>{data_val.get('dividend_yield', 0)}%</code>\n"
+                f"• Market Cap: <code>Rp{data_val.get('market_cap_t', 0):.2f} Triliun</code>\n"
                 "━━━━━━━━━━━━━━━━━━━\n"
-                f"🏷️ <b>Status Valuasi:</b> <b>{data_val['status']}</b>\n"
-                f"💡 <i>{data_val['verdict']}</i>"
+                f"🏷️ <b>Status Valuasi:</b> <b>{data_val.get('status', 'WAJAR')}</b>\n"
+                f"💡 <i>{data_val.get('verdict', '')}</i>"
             )
             kb = make_stock_inline_keyboard(ticker)
             send_telegram_message(msg, chat_id, reply_markup=kb)
@@ -1285,9 +1324,9 @@ def _handle_telegram_command_impl(command_text: str, chat_id: str):
             ]
             for idx, s in enumerate(stocks, 1):
                 lines.append(
-                    f"<b>{idx}. #{s['ticker']}</b> (<code>Rp{int(s['price']):,}</code>)\n"
-                    f"   • PBV: <code>{s['pbv']}x</code> | PER: <code>{s['per']}x</code>\n"
-                    f"   • 🏷️ {s['status']}\n"
+                    f"<b>{idx}. #{s.get('ticker', 'SAHAM')}</b> (<code>Rp{int(s.get('price', 0)):,}</code>)\n"
+                    f"   • PBV: <code>{s.get('pbv', 0)}x</code> | PER: <code>{s.get('per', 0)}x</code>\n"
+                    f"   • 🏷️ {s.get('status', 'UNDERVALUED')}\n"
                 )
             lines.append("━━━━━━━━━━━━━━━━━━━")
             lines.append("💡 <i>Ketik <code>/val KODE</code> untuk melihat rasio fundamental lengkap.</i>")
