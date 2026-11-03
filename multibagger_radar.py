@@ -121,24 +121,30 @@ def analyze_multibagger_rumor(ticker: str) -> Dict[str, Any]:
         verdict = "Ada aktivitas pergerakan, namun butuh konfirmasi lonjakan volume bandar yang lebih masif."
         action = f"Pantau pergerakan antrean dan akumulasi di level support Rp{int(whale_data['sup_20']):,}."
 
-    return {
+        return {
         "ticker": clean,
         "close": close,
+        "price": close,
         "vwap_20d": vwap20,
         "pct_diff_vwap20": pct_vwap,
         "rvol": rvol,
         "cmf_20": cmf20,
         "mb_score": total_mb_score,
+        "bagger_score": total_mb_score,
         "phase": phase,
         "phase_badge": phase_badge,
+        "badge": phase_badge,
         "verdict": verdict,
         "action": action,
-        "cost_status": whale_data["cost_status"],
-        "tp1": whale_data["tp1"],
-        "tp2": whale_data["tp2"],
-        "sl": whale_data["sl"],
+        "cost_status": whale_data.get("cost_status", ""),
+        "tp1": whale_data.get("tp1", 0),
+        "tp2": whale_data.get("tp2", 0),
+        "sl": whale_data.get("sl", 0),
         "news": corporate_news[:3],
-        "catalysts": detected_catalysts
+        "rumors": corporate_news[:3],
+        "catalysts": detected_catalysts,
+        "catalyst": detected_catalysts[0]["keyword"] if detected_catalysts else verdict,
+        "signals": [phase, verdict, f"Vol Spike {rvol:.1f}x"]
     }
 
 
