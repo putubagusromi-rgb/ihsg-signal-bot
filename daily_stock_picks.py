@@ -357,21 +357,30 @@ def evaluate_daily_result(target_date: str = None) -> Dict[str, Any]:
         target = p["target"]
         support = p["support"]
 
-        # Fetch harga langsung via yfinance (tanpa batas minimum 20 bar)
-        _ticker_jk = clean_ticker(sym)  # pastikan format XXXX.JK
+        # Fetch harga langsung via yfinance
+        _ticker_jk = clean_ticker(sym)
         try:
             _tk = yf.Ticker(_ticker_jk)
             _df = _tk.history(period="5d", interval="1d")
             if _df is not None and not _df.empty:
-                # Konversi timezone index ke WIB
                 if _df.index.tz is not None:
                     _df.index = _df.index.tz_convert(WIB)
-                # Coba ambil baris sesuai target_date, fallback ke baris terakhir
                 _target_rows = _df[_df.index.strftime('%Y-%m-%d') == target_date]
-                _row = _target_rows.iloc[-1] if not _target_rows.empty else _df.iloc[-1]
-                high = int(_row["High"])
-                low = int(_row["Low"])
-                close = int(_row["Close"])
+                if not _target_rows.empty:
+                    _row = _target_rows.iloc[-1]
+                    _idx = _df.index.get_loc(_row.name)
+                    # Modal wajib dari penutupan hari kemarin jika base_price sama dengan harga close hari ini
+                    _prev_close = int(_df.iloc[_idx - 1]["Close"]) if _idx > 0 else int(_row["Open"])
+                    if base_price == int(_row["Close"]) or base_price <= 0:
+                        base_price = _prev_close
+                    high = int(_row["High"])
+                    low = int(_row["Low"])
+                    close = int(_row["Close"])
+                else:
+                    _row = _df.iloc[-1]
+                    high = int(_row["High"])
+                    low = int(_row["Low"])
+                    close = int(_row["Close"])
             else:
                 high = base_price
                 low = base_price
