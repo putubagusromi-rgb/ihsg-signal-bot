@@ -100,12 +100,17 @@ def generate_ai_stock_consultation(ticker: str, user_question: str) -> str:
 
     # Evaluasi Valuasi
     if "error" not in val:
-        if val["pbv"] < 1.5 and val["roe"] > 10:
-            bull_points.append(f"Valuasi tergolong murah (PBV: <b>{val['pbv']}x</b> dengan ROE solid: <b>{val['roe']}%</b>).")
-        if val["div_yield"] > 4.0:
-            bull_points.append(f"Pemberi dividen royal (Dividend Yield: <b>{val['div_yield']}%</b>).")
-        if val["pbv"] > 5.0 and val["per"] > 35:
-            bear_points.append(f"Valuasi premium / sudah priced-in (PBV: <b>{val['pbv']}x</b>, PER: <b>{val['per']}x</b>).")
+        pbv_val = val.get("pbv", 0)
+        per_val = val.get("per", 0)
+        roe_val = val.get("roe", 0)
+        div_y = val.get("div_yield") if val.get("div_yield") is not None else val.get("dividend_yield", 0)
+
+        if pbv_val < 1.5 and roe_val > 10:
+            bull_points.append(f"Valuasi tergolong murah (PBV: <b>{pbv_val}x</b> dengan ROE solid: <b>{roe_val}%</b>).")
+        if div_y > 4.0:
+            bull_points.append(f"Pemberi dividen royal (Dividend Yield: <b>{div_y}%</b>).")
+        if pbv_val > 5.0 and per_val > 35:
+            bear_points.append(f"Valuasi premium / sudah priced-in (PBV: <b>{pbv_val}x</b>, PER: <b>{per_val}x</b>).")
 
     # Sentimen Berita
     sent = stock.get("sentiment", {})
