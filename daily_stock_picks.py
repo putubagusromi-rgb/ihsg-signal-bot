@@ -357,7 +357,7 @@ def evaluate_daily_result(target_date: str = None) -> Dict[str, Any]:
         target = p["target"]
         support = p["support"]
 
-               # Fetch harga langsung via yfinance (tanpa batas minimum 20 bar)
+        # Fetch harga langsung via yfinance (tanpa batas minimum 20 bar)
         _ticker_jk = clean_ticker(sym)  # pastikan format XXXX.JK
         try:
             _tk = yf.Ticker(_ticker_jk)
