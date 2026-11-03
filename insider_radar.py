@@ -109,14 +109,26 @@ def get_single_stock_valuation(ticker: str) -> Dict[str, Any]:
             status = "PREMIUM / OVERVALUED"
             verdict = "Pasar menghargai pertumbuhan tinggi, risiko koreksi jika laba meleset."
 
+        pct_change = 0.0
+        try:
+            hist = t.history(period="5d")
+            if len(hist) >= 2:
+                c1 = float(hist["Close"].iloc[-1])
+                c0 = float(hist["Close"].iloc[-2])
+                pct_change = round(((c1 - c0) / c0) * 100, 2)
+        except Exception:
+            pass
+
         return {
             "ticker": clean,
             "price": price,
+            "pct_change": pct_change,
             "sector": sector,
             "pbv": round(pbv, 2),
             "per": round(per, 2),
             "roe": formatted_roe,
             "dividend_yield": formatted_div,
+            "div_yield": formatted_div,
             "market_cap_t": round(info.get("marketCap", 0) / 1e12, 2),
             "status": status,
             "verdict": verdict
@@ -151,6 +163,13 @@ def scan_undervalued_stocks(tickers: List[str], limit: int = 5) -> List[Dict[str
 
                     formatted_roe = round(roe * 100 if roe and roe < 1.0 else (roe or 0), 1)
 
+                    if pbv < 1.0 and per < 10:
+                        cand_status = "SANGAT DISKON (DEEP VALUE)"
+                    elif pbv < 1.5 and per < 15:
+                        cand_status = "UNDERVALUED (MURAH)"
+                    else:
+                        cand_status = "DISKON POTENSIAL"
+
                     candidates.append({
                         "ticker": sym.replace(".JK", ""),
                         "price": price,
@@ -159,7 +178,9 @@ def scan_undervalued_stocks(tickers: List[str], limit: int = 5) -> List[Dict[str
                         "per": round(per, 2),
                         "roe": formatted_roe,
                         "div_yield": formatted_div,
-                        "discount_score": discount_score
+                        "dividend_yield": formatted_div,
+                        "discount_score": discount_score,
+                        "status": cand_status
                     })
         except Exception:
             continue
