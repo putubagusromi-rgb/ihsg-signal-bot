@@ -121,7 +121,7 @@ def analyze_multibagger_rumor(ticker: str) -> Dict[str, Any]:
         verdict = "Ada aktivitas pergerakan, namun butuh konfirmasi lonjakan volume bandar yang lebih masif."
         action = f"Pantau pergerakan antrean dan akumulasi di level support Rp{int(whale_data['sup_20']):,}."
 
-        return {
+    return {
         "ticker": clean,
         "close": close,
         "price": close,
