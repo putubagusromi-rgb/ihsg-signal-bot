@@ -15,7 +15,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
-from signal_engine import fetch_stock_data, calculate_support_resistance
+import yfinance as yf
+from signal_engine import fetch_stock_data, calculate_support_resistance, clean_ticker
 from ara_hunter import scan_ara_hunter_picks
 from hedgefund_radar import scan_hedgefund_picks
 from whale_radar import scan_top_whale_accumulations
