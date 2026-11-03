@@ -357,13 +357,27 @@ def evaluate_daily_result(target_date: str = None) -> Dict[str, Any]:
         target = p["target"]
         support = p["support"]
 
-        df = fetch_stock_data(sym, period="5d", interval="1d")
-        if df is not None and len(df) > 0:
-            latest = df.iloc[-1]
-            high = int(latest["High"])
-            low = int(latest["Low"])
-            close = int(latest["Close"])
-        else:
+               # Fetch harga langsung via yfinance (tanpa batas minimum 20 bar)
+        _ticker_jk = clean_ticker(sym)  # pastikan format XXXX.JK
+        try:
+            _tk = yf.Ticker(_ticker_jk)
+            _df = _tk.history(period="5d", interval="1d")
+            if _df is not None and not _df.empty:
+                # Konversi timezone index ke WIB
+                if _df.index.tz is not None:
+                    _df.index = _df.index.tz_convert(WIB)
+                # Coba ambil baris sesuai target_date, fallback ke baris terakhir
+                _target_rows = _df[_df.index.strftime('%Y-%m-%d') == target_date]
+                _row = _target_rows.iloc[-1] if not _target_rows.empty else _df.iloc[-1]
+                high = int(_row["High"])
+                low = int(_row["Low"])
+                close = int(_row["Close"])
+            else:
+                high = base_price
+                low = base_price
+                close = base_price
+        except Exception as _e:
+            print(f"[Result Fetch Error] {sym}: {_e}")
             high = base_price
             low = base_price
             close = base_price
