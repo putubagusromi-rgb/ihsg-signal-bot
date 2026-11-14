@@ -48,6 +48,10 @@ from multibagger_radar import analyze_multibagger_rumor, scan_top_multibagger_pi
 from macro_regime import get_ihsg_market_regime
 from daily_prediction import predict_daily_ihsg_direction
 from ara_hunter import scan_ara_hunter_picks, format_ara_hunter_message
+from bsjp_scalp_radar import (
+    scan_bsjp_picks, scan_scalp_momentum_picks,
+    format_bsjp_message, format_scalp_message
+)
 from portfolio_tracker import (
     add_stock_to_portfolio,
     remove_stock_from_portfolio,
@@ -98,6 +102,10 @@ def make_main_inline_menu() -> dict:
             [
                 {"text": "🔮 Prediksi IHSG Besok", "callback_data": "menu:prediksi"},
                 {"text": "⚡ Radar ARA Hunter", "callback_data": "menu:arahunter"}
+            ],
+            [
+                {"text": "🌇 Radar BSJP (Beli Sore)", "callback_data": "menu:bsjp"},
+                {"text": "⚡ Scalp Momentum Pagi", "callback_data": "menu:scalp"}
             ],
             [
                 {"text": "💼 Pantau Portofolio", "callback_data": "menu:watchlist"},
@@ -158,6 +166,8 @@ def setup_bot_commands():
         {"command": "daily", "description": "📊 Laporan Harian Lengkap Pasar"},
         {"command": "prediksi", "description": "🔮 Prediksi Arah IHSG Besok (Win Rate 67%)"},
         {"command": "arahunter", "description": "⚡ Radar Saham Potensi ARA Besok"},
+        {"command": "bsjp", "description": "🌇 Radar Beli Sore Jual Pagi (Pre-Closing 15:35)"},
+        {"command": "scalp", "description": "⚡ Radar Scalp Momentum Pagi (09:05 WIB)"},
         {"command": "watchlist", "description": "💼 Cek Portofolio Saham Pribadi"},
         {"command": "pantau", "description": "➕ Tambah Saham (cth: /pantau BBCA 9800 20)"},
         {"command": "hapuspantau", "description": "➖ Hapus Saham Pantauan (cth: /hapuspantau BBCA)"},
@@ -1047,6 +1057,10 @@ def _handle_telegram_command_impl(command_text: str, chat_id: str):
             command_text = "/keyboard"
         elif raw_lower in ["arahunter", "ara", "ara hunter", "calon ara"]:
             command_text = "/arahunter"
+        elif raw_lower in ["bsjp", "beli sore", "beli sore jual pagi", "sore"]:
+            command_text = "/bsjp"
+        elif raw_lower in ["scalp", "scalping", "beli pagi", "pagi"]:
+            command_text = "/scalp"
         elif raw_lower in ["watchlist", "portofolioku", "portofolio pribadi"]:
             command_text = "/watchlist"
         elif raw_lower in ["prediksi", "arah ihsg", "forecast", "besok"]:
@@ -1142,6 +1156,16 @@ def _handle_telegram_command_impl(command_text: str, chat_id: str):
         send_telegram_message("⚡ <i>Memindai radar ARA Hunter &amp; ledakan volume penutupan bursa...</i>", chat_id)
         picks = scan_ara_hunter_picks(limit=5)
         send_long_telegram_message(format_ara_hunter_message(picks), chat_id)
+
+    elif cmd in ["/bsjp", "/belisore"]:
+        send_telegram_message("🌇 <i>Memindai saham BSJP (Beli Sore Jual Pagi) dengan likuiditas >= Rp 2 Miliar...</i>", chat_id)
+        picks = scan_bsjp_picks(limit=3)
+        send_long_telegram_message(format_bsjp_message(picks), chat_id)
+
+    elif cmd in ["/scalp", "/belipagi"]:
+        send_telegram_message("⚡ <i>Memindai radar Scalp Momentum Pagi (Breakout High &amp; Vol Spike)...</i>", chat_id)
+        picks = scan_scalp_momentum_picks(limit=3)
+        send_long_telegram_message(format_scalp_message(picks), chat_id)
 
     elif cmd in ["/pantau", "/tambahpantau"]:
         if len(parts) < 3:
