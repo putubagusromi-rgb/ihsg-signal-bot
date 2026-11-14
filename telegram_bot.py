@@ -139,6 +139,10 @@ def make_compact_reply_keyboard() -> dict:
                 {"text": "🏆 Daily Result"}
             ],
             [
+                {"text": "🌇 Radar BSJP"},
+                {"text": "⚡ Scalp Pagi"}
+            ],
+            [
                 {"text": "🔮 Prediksi Arah IHSG"},
                 {"text": "⚡ Radar ARA Hunter"}
             ]
@@ -962,6 +966,10 @@ def handle_telegram_callback(callback_query: dict):
             send_telegram_message("⚡ <i>Memindai radar ARA Hunter & ledakan volume penutupan...</i>", chat_id)
             picks = scan_ara_hunter_picks(limit=5)
             send_long_telegram_message(format_ara_hunter_message(picks), chat_id)
+        elif target == "bsjp":
+            handle_telegram_command("/bsjp", chat_id)
+        elif target == "scalp":
+            handle_telegram_command("/scalp", chat_id)
         elif target == "watchlist":
             send_telegram_message("⏳ <i>Menghubungkan ke bursa untuk mengevaluasi portofolio Anda...</i>", chat_id)
             eval_data = evaluate_user_portfolio(chat_id)
@@ -1032,6 +1040,8 @@ def _handle_telegram_command_impl(command_text: str, chat_id: str):
         "🔮 Prediksi Arah IHSG": "/prediksi",
         "🚀 Radar Multi-Bagger": "/multibagger",
         "⚡ Radar ARA Hunter": "/arahunter",
+        "🌇 Radar BSJP": "/bsjp",
+        "⚡ Scalp Pagi": "/scalp",
         "💼 Portofolio Pribadi": "/watchlist",
         "🏆 Tier List Whale": "/tierlist",
         "🌐 Status Pasar IHSG": "/regime",
