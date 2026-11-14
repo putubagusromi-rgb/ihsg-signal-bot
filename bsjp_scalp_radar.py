@@ -34,6 +34,70 @@ EXPANDED_WATCHLIST = [
 ]
 
 
+DAY_NAMES_ID = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
+
+
+def get_market_timing_info(mode: str = "scalp") -> Dict[str, Any]:
+    """Cek apakah bursa sedang libur (weekend) atau di luar jam perdagangan aktif."""
+    now = datetime.now(WIB) if WIB else datetime.now()
+    weekday = now.weekday()
+    day_name = DAY_NAMES_ID[weekday]
+    date_str = now.strftime("%d %b %Y")
+    time_str = now.strftime("%H:%M")
+    is_weekend = weekday in (5, 6)
+
+    if is_weekend:
+        return {
+            "is_weekend": True,
+            "status_badge": "🔴 <b>STATUS PASAR: BURSA LIBUR (AKHIR PEKAN)</b>",
+            "day_name": day_name,
+            "date_str": date_str,
+            "time_str": time_str,
+            "note": (
+                f"⚠️ Hari ini adalah hari <b>{day_name} ({date_str})</b>, Bursa Efek Indonesia (IDX) sedang <b>TUTUP</b>.\n"
+                f"📊 Data di bawah adalah <b>Watchlist Persiapan Trading Hari Senin</b> berdasarkan hasil penutupan sesi bursa terakhir (Jumat)."
+            ),
+            "next_execution": "Senin pukul 09:05 - 09:30 WIB" if mode == "scalp" else "Senin pukul 15:35 - 15:55 WIB (Pre-Closing)"
+        }
+    else:
+        hour = now.hour
+        minute = now.minute
+        time_val = hour * 60 + minute
+
+        if mode == "scalp":
+            if time_val < 9 * 60:
+                badge = "🟡 <b>STATUS: PRE-OPENING (Pasar Belum Buka)</b>"
+                note = "⏳ Bursa baru buka pukul 09:00 WIB. Waktu ideal eksekusi Scalp Pagi adalah <b>09:05 - 09:30 WIB</b>."
+            elif (9 * 60 <= time_val <= 11 * 60 + 30) or (13 * 60 + 30 <= time_val <= 15 * 60 + 45):
+                badge = "🟢 <b>STATUS: LIVE TRADING (Pasar Aktif)</b>"
+                note = "⚡ Sinyal momentum realtime aktif. Amati antrian Bid/Offer dan volume lonjakan!"
+            else:
+                badge = "⚪ <b>STATUS: PASAR SUDAH TUTUP (Post-Closing)</b>"
+                note = "📊 Data di bawah adalah hasil penutupan hari ini untuk persiapan trading besok pagi."
+            next_exec = f"{day_name}, 09:05 - 09:30 WIB"
+        else:  # bsjp
+            if time_val < 15 * 60 + 30:
+                badge = "🟡 <b>STATUS: SESI REGULER (Belum Sesi Pre-Closing)</b>"
+                note = "💡 Radar BSJP paling akurat diakses pada pukul <b>15:35 - 15:55 WIB</b> saat sesi Pre-Closing."
+            elif 15 * 60 + 30 <= time_val <= 16 * 60:
+                badge = "🟢 <b>STATUS: SESI PRE-CLOSING (WAKTU EMAS BSJP)</b>"
+                note = "🔥 Waktu ideal untuk memasukkan order beli sore sebelum bursa tutup pukul 16:00 WIB!"
+            else:
+                badge = "⚪ <b>STATUS: PASAR SUDAH TUTUP (Post-Closing)</b>"
+                note = "📊 Data penutupan sore hari ini untuk persiapan jual pagi esok hari."
+            next_exec = f"{day_name}, 15:35 - 15:55 WIB"
+
+        return {
+            "is_weekend": False,
+            "status_badge": badge,
+            "day_name": day_name,
+            "date_str": date_str,
+            "time_str": time_str,
+            "note": note,
+            "next_execution": next_exec
+        }
+
+
 def check_ihsg_market_shield() -> Dict[str, Any]:
     """Cek kondisi IHSG untuk panduan manajemen risiko"""
     try:
@@ -228,18 +292,31 @@ def scan_scalp_momentum_picks(limit: int = 3) -> List[Dict[str, Any]]:
 
 def format_bsjp_message(picks: List[Dict[str, Any]]) -> str:
     """Format pesan Telegram untuk Radar BSJP (Uncapped TP & SL 5%)"""
-    now = datetime.now(WIB) if WIB else datetime.now()
-    date_str = now.strftime("%d %b %Y")
+    timing = get_market_timing_info(mode="bsjp")
     shield = check_ihsg_market_shield()
 
-    lines = [
-        "🌇 <b>RADAR BSJP — DAILY STOCK PICK SORE</b> 🎯",
-        f"📅 <i>Sesi Eksekusi: Pre-Closing (15:35 - 15:55 WIB) | {date_str}</i>",
-        f"🛡️ <b>Kondisi Pasar:</b> <i>{shield['reason']}</i>",
-        "━━━━━━━━━━━━━━━━━━━",
-        "<b>3 Saham Pilihan Terbaik Hari Ini (Turnover ≥ Rp 2 Miliar):</b>",
-        ""
-    ]
+    if timing["is_weekend"]:
+        lines = [
+            "🌇 <b>RADAR BSJP — BELI SORE JUAL PAGI (WATCHLIST SENIN)</b> 🎯",
+            f"{timing['status_badge']}",
+            f"{timing['note']}",
+            f"⏰ <b>Jadwal Beli Sore Live:</b> <code>{timing['next_execution']}</code>",
+            f"🛡️ <b>Kondisi Pasar:</b> <i>{shield['reason']}</i>",
+            "━━━━━━━━━━━━━━━━━━━",
+            "<b>3 Saham BSJP Terpilih Hasil Penutupan Terakhir:</b>",
+            ""
+        ]
+    else:
+        lines = [
+            "🌇 <b>RADAR BSJP — DAILY STOCK PICK SORE</b> 🎯",
+            f"{timing['status_badge']}",
+            f"📅 <i>Waktu: {timing['day_name']}, {timing['date_str']} ({timing['time_str']} WIB)</i>",
+            f"🛡️ <b>Kondisi Pasar:</b> <i>{shield['reason']}</i>",
+            f"💡 <i>{timing['note']}</i>",
+            "━━━━━━━━━━━━━━━━━━━",
+            "<b>3 Saham Pilihan Terbaik Hari Ini (Turnover ≥ Rp 2 Miliar):</b>",
+            ""
+        ]
 
     for idx, p in enumerate(picks, 1):
         lines.append(
@@ -264,16 +341,28 @@ def format_bsjp_message(picks: List[Dict[str, Any]]) -> str:
 
 def format_scalp_message(picks: List[Dict[str, Any]]) -> str:
     """Format pesan Telegram untuk Radar Scalping Pagi (Uncapped TP & SL 5%)"""
-    now = datetime.now(WIB) if WIB else datetime.now()
-    date_str = now.strftime("%d %b %Y")
+    timing = get_market_timing_info(mode="scalp")
 
-    lines = [
-        "⚡ <b>RADAR DAILY SCALP MOMENTUM PAGI</b> 🏹",
-        f"📅 <i>Waktu Eksekusi: 09:05 - 09:30 WIB | {date_str}</i>",
-        "━━━━━━━━━━━━━━━━━━━",
-        "<b>3 Saham Scalp Terbaik Pagi Ini (Volume Meledak):</b>",
-        ""
-    ]
+    if timing["is_weekend"]:
+        lines = [
+            "⚡ <b>RADAR DAILY SCALP MOMENTUM (WATCHLIST SENIN)</b> 🏹",
+            f"{timing['status_badge']}",
+            f"{timing['note']}",
+            f"⏰ <b>Jadwal Eksekusi Live:</b> <code>{timing['next_execution']}</code>",
+            "━━━━━━━━━━━━━━━━━━━",
+            "<b>3 Saham Scalp Terpilih Hasil Penutupan Terakhir:</b>",
+            ""
+        ]
+    else:
+        lines = [
+            "⚡ <b>RADAR DAILY SCALP MOMENTUM PAGI</b> 🏹",
+            f"{timing['status_badge']}",
+            f"📅 <i>Waktu: {timing['day_name']}, {timing['date_str']} ({timing['time_str']} WIB)</i>",
+            f"💡 <i>{timing['note']}</i>",
+            "━━━━━━━━━━━━━━━━━━━",
+            "<b>3 Saham Scalp Terbaik Pagi Ini (Volume Meledak):</b>",
+            ""
+        ]
 
     for idx, p in enumerate(picks, 1):
         lines.append(

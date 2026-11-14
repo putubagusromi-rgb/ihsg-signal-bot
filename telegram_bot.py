@@ -1168,12 +1168,26 @@ def _handle_telegram_command_impl(command_text: str, chat_id: str):
         send_long_telegram_message(format_ara_hunter_message(picks), chat_id)
 
     elif cmd in ["/bsjp", "/belisore"]:
-        send_telegram_message("🌇 <i>Memindai saham BSJP (Beli Sore Jual Pagi) dengan likuiditas >= Rp 2 Miliar...</i>", chat_id)
+        now_wib = datetime.now(WIB) if WIB else datetime.now()
+        is_we = now_wib.weekday() in (5, 6)
+        pre_msg = (
+            "🏖️ <i>Bursa libur akhir pekan. Memindai data penutupan Jumat untuk persiapan Watchlist BSJP Senin...</i>"
+            if is_we else
+            "🌇 <i>Memindai saham BSJP (Beli Sore Jual Pagi) dengan likuiditas >= Rp 2 Miliar...</i>"
+        )
+        send_telegram_message(pre_msg, chat_id)
         picks = scan_bsjp_picks(limit=3)
         send_long_telegram_message(format_bsjp_message(picks), chat_id)
 
     elif cmd in ["/scalp", "/belipagi"]:
-        send_telegram_message("⚡ <i>Memindai radar Scalp Momentum Pagi (Breakout High &amp; Vol Spike)...</i>", chat_id)
+        now_wib = datetime.now(WIB) if WIB else datetime.now()
+        is_we = now_wib.weekday() in (5, 6)
+        pre_msg = (
+            "🏖️ <i>Bursa libur akhir pekan. Memindai data penutupan Jumat untuk persiapan Watchlist Scalp Senin...</i>"
+            if is_we else
+            "⚡ <i>Memindai radar Scalp Momentum Pagi (Breakout High &amp; Vol Spike)...</i>"
+        )
+        send_telegram_message(pre_msg, chat_id)
         picks = scan_scalp_momentum_picks(limit=3)
         send_long_telegram_message(format_scalp_message(picks), chat_id)
 
