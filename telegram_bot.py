@@ -116,7 +116,7 @@ def make_main_inline_menu() -> dict:
                 {"text": "🏛️ Wyckoff Hedge Fund", "callback_data": "menu:hedge"}
             ],
             [
-                {"text": "🐋 Top 5 Whale LQ45", "callback_data": "menu:whalelist"},
+                {"text": "🛡️ IHSG Crash Shield", "callback_data": "menu:crashshield"},
                 {"text": "🌐 Status Pasar IHSG", "callback_data": "menu:regime"}
             ],
             [
@@ -184,6 +184,7 @@ def setup_bot_commands():
         {"command": "scan", "description": "🎯 Deep Dive 1 Saham (cth: /scan BBCA)"},
         {"command": "chart", "description": "📈 Grafik Candlestick & MA (cth: /chart BBRI)"},
         {"command": "regime", "description": "🌐 Status Kesehatan Pasar & Proteksi Crash"},
+        {"command": "crashshield", "description": "🛡️ Cek Status Sensor Bahaya & Crash IHSG"},
         {"command": "val", "description": "💎 Deep Value Screener (PBV & PER Rendah)"},
         {"command": "dividen", "description": "💰 Dividend Hunter (Saham Yield Tertinggi)"},
         {"command": "calc", "description": "🧮 Hitung Money Management (cth: /calc BBCA 20jt)"},
@@ -998,6 +999,8 @@ def handle_telegram_callback(callback_query: dict):
         elif target == "regime":
             data_reg = get_ihsg_market_regime()
             send_long_telegram_message(format_ihsg_regime_message(data_reg), chat_id)
+        elif target == "crashshield":
+            handle_telegram_command("/crashshield", chat_id)
         elif target == "simulasi100jt":
             send_long_telegram_message(format_simulasi_100m_message(), chat_id)
         elif target == "whalelist":
@@ -1147,12 +1150,32 @@ def _handle_telegram_command_impl(command_text: str, chat_id: str):
         return
 
     elif cmd in ["/pick", "/stockpick", "/rekomendasi", "/pilihan"]:
-        send_telegram_message("⏳ <i>Menyiapkan kartu grafis 3 Saham Pilihan Terbaik Hari Ini...</i>", chat_id)
+        send_telegram_message("⏳ <i>Menghubungkan ke terminal pasar dan memeriksa IHSG Crash Shield...</i>", chat_id)
         picks = get_daily_top3_picks()
         pick_img = generate_stock_pick_image(picks)
         pick_cap = format_daily_stock_pick_caption(picks)
-        send_telegram_photo(pick_img, caption="📋 <b>DAILY STOCK PICK HARI INI</b> (3 Saham Pilihan)", chat_id=chat_id)
+        photo_caption = "📋 <b>DAILY STOCK PICK HARI INI</b> (3 Saham Pilihan)" if picks else "🚨 <b>PERINGATAN IHSG CRASH SHIELD</b> (Pembelian Dibekukan)"
+        if pick_img:
+            send_telegram_photo(pick_img, caption=photo_caption, chat_id=chat_id)
         send_long_telegram_message(pick_cap, chat_id=chat_id)
+
+    elif cmd in ["/crashshield", "/shield", "/sensor"]:
+        send_telegram_message("🛡️ <i>Mendiagnosa 4 sensor risiko pasar (EIDO, Kurs Rupiah, S&amp;P 500, &amp; Tren IHSG)...</i>", chat_id)
+        from ihsg_crash_shield import detect_ihsg_crash_shield, format_crash_shield_warning
+        shield = detect_ihsg_crash_shield()
+        if shield.get("active"):
+            send_long_telegram_message(format_crash_shield_warning(shield), chat_id)
+        else:
+            send_telegram_message(
+                f"🛡️ <b>STATUS IHSG CRASH SHIELD: AMAN (NORMAL)</b>\n\n"
+                f"• Status Pasar: <b>{shield.get('severity', 'AMAN')}</b>\n"
+                f"• Indeks IHSG: <code>{shield.get('ihsg_price', 0):,.0f}</code> ({'+' if shield.get('ihsg_chg1d', 0)>=0 else ''}{shield.get('ihsg_chg1d', 0):.2f}% 1D | {shield.get('ihsg_chg5d', 0):.2f}% 5D)\n"
+                f"• EIDO (MSCI Indonesia US): <code>{'+' if shield.get('eido_ret', 0)>=0 else ''}{shield.get('eido_ret', 0):.2f}%</code>\n"
+                f"• Kurs USD/IDR: <code>Rp {shield.get('curr_idr', 0):,.0f}</code> ({'+' if shield.get('idr_chg1d', 0)>=0 else ''}{shield.get('idr_chg1d', 0):.2f}%)\n"
+                f"• S&amp;P 500: <code>{'+' if shield.get('sp_ret', 0)>=0 else ''}{shield.get('sp_ret', 0):.2f}%</code>\n\n"
+                f"✅ <i>Seluruh sensor risiko sistemik berada di zona aman. Fitur Daily Pick, BSJP, dan Scalp beroperasi normal!</i>",
+                chat_id
+            )
 
     elif cmd in ["/result", "/dailyresult", "/hasil", "/evaluasi"]:
         send_telegram_message("⏳ <i>Mengevaluasi hasil pergerakan harga 3 saham pilihan hari ini...</i>", chat_id)

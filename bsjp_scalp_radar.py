@@ -99,24 +99,19 @@ def get_market_timing_info(mode: str = "scalp") -> Dict[str, Any]:
 
 
 def check_ihsg_market_shield() -> Dict[str, Any]:
-    """Cek kondisi IHSG untuk panduan manajemen risiko"""
+    """Cek kondisi IHSG untuk panduan manajemen risiko menggunakan modul Crash Shield"""
     try:
-        ihsg = yf.download("^JKSE", period="3mo", interval="1d", progress=False)
-        if ihsg.empty:
-            return {"safe": True, "reason": "IHSG Netral"}
-        c = ihsg["Close"]["^JKSE"] if isinstance(ihsg["Close"], pd.DataFrame) else ihsg["Close"]
-        curr_ihsg = float(c.iloc[-1])
-        sma50 = float(c.rolling(50).mean().iloc[-1])
-        chg_today = float(c.pct_change().iloc[-1] * 100)
-
-        if curr_ihsg < (sma50 * 0.985) and chg_today < -1.0:
+        from ihsg_crash_shield import detect_ihsg_crash_shield
+        shield = detect_ihsg_crash_shield()
+        if shield.get("active"):
+            main_reason = shield["reasons"][0] if shield.get("reasons") else "Koreksi Pasar Tajam"
             return {
                 "safe": False,
-                "reason": f"IHSG sedang Bearish/Koreksi ({curr_ihsg:,.0f} < SMA50 {sma50:,.0f}). Pasang Stop Loss ketat!"
+                "reason": f"🚨 CRASH SHIELD AKTIF ({shield.get('severity', 'RISK-OFF')}): {main_reason} — Tahan Pembelian Baru &amp; Simpan Cash!"
             }
         return {"safe": True, "reason": "IHSG Kondusif / Uptrend"}
     except Exception:
-        return {"safe": True, "reason": "Bypass"}
+        return {"safe": True, "reason": "IHSG Netral"}
 
 
 def scan_bsjp_picks(limit: int = 3) -> List[Dict[str, Any]]:

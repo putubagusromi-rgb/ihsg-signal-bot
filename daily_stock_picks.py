@@ -102,6 +102,24 @@ def get_daily_top3_picks(force_refresh: bool = False) -> List[Dict[str, Any]]:
     today_str = _get_today_str()
     history = load_picks_history()
 
+    # 1. Cek IHSG Crash Shield & Early Warning Circuit Breaker
+    try:
+        from ihsg_crash_shield import detect_ihsg_crash_shield
+        shield = detect_ihsg_crash_shield()
+        if shield.get("active"):
+            print(f"[DailyStockPicks] IHSG CRASH SHIELD AKTIF: {shield.get('reasons')}")
+            # Simpan status defense ke history
+            history[today_str] = {
+                "date": today_str,
+                "created_at": datetime.now().isoformat(),
+                "picks": [],
+                "crash_shield": shield
+            }
+            save_picks_history(history)
+            return []
+    except Exception as e:
+        print(f"[CrashShield Check Error] {e}")
+
     if not force_refresh and today_str in history and history[today_str].get("picks"):
         picks = history[today_str]["picks"]
         for p in picks:
@@ -246,7 +264,86 @@ def get_daily_top3_picks(force_refresh: bool = False) -> List[Dict[str, Any]]:
     return top3
 
 
+def generate_crash_defense_image(shield: Dict[str, Any], date_str: str = None) -> bytes:
+    """Kartu Grafis Khusus Pertahanan Modal saat IHSG Crash Shield Aktif"""
+    t_info = get_target_trading_day()
+    if not date_str:
+        date_str = f"{t_info['target_day_name']}, {t_info['formatted_en']}"
+
+    fig = plt.figure(figsize=(7.5, 9.6), dpi=220)
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.axis("off")
+
+    ax.set_facecolor("#FFFFFF")
+    bg_box = patches.Rectangle((0, 0), 1, 1, facecolor="#FEF2F2", edgecolor="none", zorder=0)
+    ax.add_patch(bg_box)
+
+    top_bar = patches.Rectangle((0, 0.985), 1, 0.015, facecolor="#DC2626", edgecolor="none", zorder=1)
+    ax.add_patch(top_bar)
+
+    # Logo mark (Red Shield Theme)
+    circle_outer = patches.Circle((0.14, 0.88), 0.055, facecolor="#FEE2E2", edgecolor="#DC2626", linewidth=2.5, zorder=2)
+    ax.add_patch(circle_outer)
+    circle_inner = patches.Circle((0.14, 0.88), 0.035, facecolor="#DC2626", edgecolor="none", zorder=3)
+    ax.add_patch(circle_inner)
+    ax.text(0.14, 0.88, "RWY", fontsize=11, fontweight="bold", color="#FFFFFF", ha="center", va="center", zorder=4)
+    ax.text(0.14, 0.81, "SHIELD", fontsize=11, fontweight="bold", color="#B91C1C", ha="center", va="center", zorder=4)
+
+    # Title
+    ax.text(0.48, 0.89, "IHSG CRASH SHIELD", fontsize=23, fontweight="bold", color="#991B1B", ha="center", va="center", zorder=3)
+    ax.text(0.48, 0.83, "CIRCUIT BREAKER AKTIF", fontsize=17, fontweight="bold", color="#DC2626", ha="center", va="center", zorder=3)
+
+    # Date
+    ax.text(0.88, 0.89, date_str, fontsize=11, fontweight="bold", color="#7F1D1D", ha="right", va="center", zorder=3)
+    ax.text(0.88, 0.84, "STATUS: RISK-OFF", fontsize=10, fontweight="bold", color="#DC2626", ha="right", va="center", zorder=3)
+
+    # Big Alert Box
+    alert_box = patches.FancyBboxPatch((0.08, 0.65), 0.84, 0.12,
+                                       boxstyle="round,pad=0.015,rounding_size=0.02",
+                                       facecolor="#FEE2E2", edgecolor="#EF4444", linewidth=2.0, zorder=2)
+    ax.add_patch(alert_box)
+    ax.text(0.50, 0.725, "[!] PEMBELIAN DIBEKUKAN: CASH IS KING! [!]", fontsize=14.5, fontweight="bold", color="#991B1B", ha="center", va="center", zorder=3)
+    ax.text(0.50, 0.680, "Pasar terdeteksi dalam risiko koreksi tajam / outflow sistemik. DILARANG menangkap pisau jatuh!", fontsize=9.0, color="#7F1D1D", ha="center", va="center", zorder=3)
+
+    # Market Indicators Box
+    card_box = patches.FancyBboxPatch((0.08, 0.35), 0.84, 0.27,
+                                      boxstyle="round,pad=0.015,rounding_size=0.02",
+                                      facecolor="#FFFFFF", edgecolor="#FECACA", linewidth=1.5, zorder=2)
+    ax.add_patch(card_box)
+    ax.text(0.12, 0.585, "[!] INDIKATOR BAHAYA SISTEMIK TERDETEKSI:", fontsize=12, fontweight="bold", color="#991B1B", va="center", zorder=3)
+
+    reasons = shield.get("reasons", ["Koreksi tajam indeks global & tekanan kurs valas"])
+    if not reasons:
+        reasons = ["Tekanan koreksi pasar sistemik (IHSG di bawah level rata-rata pergerakan)"]
+    for idx, r in enumerate(reasons[:4]):
+        y_r = 0.535 - (idx * 0.045)
+        ax.text(0.12, y_r, f"- {r[:65]}...", fontsize=9.2, fontweight="bold", color="#334155", va="center", zorder=3)
+
+    # Guidelines Box
+    guide_box = patches.FancyBboxPatch((0.08, 0.12), 0.84, 0.19,
+                                       boxstyle="round,pad=0.015,rounding_size=0.02",
+                                       facecolor="#FFFFFF", edgecolor="#E2E8F0", linewidth=1.2, zorder=2)
+    ax.add_patch(guide_box)
+    ax.text(0.12, 0.275, "[*] PROTOKOL PERLINDUNGAN MODAL:", fontsize=11.5, fontweight="bold", color="#1E293B", va="center", zorder=3)
+    ax.text(0.12, 0.235, "1. 100% Simpan Dana Tunai (Cash): Jangan masuk ke saham apa pun.", fontsize=9, color="#475569", va="center", zorder=3)
+    ax.text(0.12, 0.195, "2. Ketatkan Trailing Stop: Jika ada saham berjalan, amankan profit.", fontsize=9, color="#475569", va="center", zorder=3)
+    ax.text(0.12, 0.155, "3. Bot akan otomatis aktif kembali saat badai kepanikan mereda.", fontsize=9, color="#475569", va="center", zorder=3)
+
+    # Footer
+    ax.text(0.08, 0.05, "Analyst : RWY Capital AI Defense System | Menjaga modal trading adalah prioritas nomor 1.", fontsize=8.2, color="#94A3B8", style="italic", va="center", zorder=3)
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format="png", dpi=220, bbox_inches="tight", facecolor=fig.get_facecolor(), edgecolor="none")
+    plt.close(fig)
+    buf.seek(0)
+    return buf.getvalue()
+
+
 def generate_stock_pick_image(picks: List[Dict[str, Any]], date_str: str = None) -> bytes:
+    if not picks:
+        from ihsg_crash_shield import detect_ihsg_crash_shield
+        shield = detect_ihsg_crash_shield()
+        return generate_crash_defense_image(shield, date_str)
     t_info = get_target_trading_day()
     if not date_str:
         date_str = f"{t_info['target_day_name']}, {t_info['formatted_en']}"
@@ -346,6 +443,17 @@ def evaluate_daily_result(target_date: str = None) -> Dict[str, Any]:
         picks = get_daily_top3_picks()
     else:
         picks = history[target_date]["picks"]
+
+    if not picks:
+        return {
+            "date": target_date,
+            "results": [],
+            "hit_target_count": 0,
+            "win_rate": 0.0,
+            "avg_max_gain": 0.0,
+            "shield_active": True,
+            "note": "IHSG Crash Shield Aktif — Tidak ada posisi beli yang dibuka (100% Cash Defense)."
+        }
 
     results = []
     hit_target_count = 0
@@ -519,6 +627,11 @@ def generate_daily_result_image(eval_data: Dict[str, Any]) -> bytes:
 
 
 def format_daily_stock_pick_caption(picks: List[Dict[str, Any]], date_str: str = None) -> str:
+    if not picks:
+        from ihsg_crash_shield import detect_ihsg_crash_shield, format_crash_shield_warning
+        shield = detect_ihsg_crash_shield()
+        return format_crash_shield_warning(shield)
+
     t_info = get_target_trading_day()
     if not date_str:
         date_str = t_info["formatted_id"]
@@ -568,6 +681,18 @@ def format_daily_stock_pick_caption(picks: List[Dict[str, Any]], date_str: str =
 
 
 def format_daily_result_caption(eval_data: Dict[str, Any], date_str: str = None) -> str:
+    if eval_data.get("shield_active"):
+        return (
+            "🌇 <b>DAILY RESULT EVALUASI SORE (16:15 WIB)</b> 🛡️\n"
+            f"📅 <i>Tanggal: {date_str or eval_data.get('date', _get_today_str())}</i>\n"
+            "━━━━━━━━━━━━━━━━━━━\n"
+            "🛡️ <b>STATUS: IHSG CRASH SHIELD ACTIVE (CASH IS KING)</b>\n"
+            "✅ <b>Hasil Proteksi Modal:</b> 100% Dana Tunai Aman!\n"
+            "💡 <i>Bot tidak membuka posisi belanja hari ini demi melindungi modal dari risiko sistemik pasar. Portofolio terselamatkan dari potensi penurunan bursa!</i>\n"
+            "━━━━━━━━━━━━━━━━━━━\n"
+            "💡 <i>Ketik <code>/prediksi</code> untuk melihat proyeksi arah IHSG esok hari.</i>"
+        )
+
     now = datetime.now(WIB) if WIB else datetime.now()
     is_weekend = now.weekday() in (5, 6)
 
