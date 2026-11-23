@@ -120,6 +120,36 @@ def get_daily_top3_picks(force_refresh: bool = False) -> List[Dict[str, Any]]:
     except Exception as e:
         print(f"[CrashShield Check Error] {e}")
 
+    # 1B. Cek Kompas Arah Tren Pasar IHSG (Market Direction Compass)
+    try:
+        from rwy_alpha_scanner import get_market_compass
+        compass = get_market_compass()
+        if compass.get("status") == "BEARISH":
+            print(f"[DailyStockPicks] PASAR DOWNTREND: {compass.get('advice')}")
+            history[today_str] = {
+                "date": today_str,
+                "created_at": datetime.now().isoformat(),
+                "picks": [],
+                "crash_shield": {
+                    "active": True,
+                    "severity": "BEARISH DOWNTREND",
+                    "reasons": [
+                        "IHSG terkonfirmasi Downtrend (di bawah level SMA20 & SMA50)",
+                        f"Tekanan jual sistemik: {compass.get('advice', '')}"
+                    ],
+                    "ihsg_price": compass.get("close", 0),
+                    "ihsg_chg1d": compass.get("chg_1d", 0),
+                    "ihsg_chg5d": compass.get("chg_5d", 0),
+                    "curr_idr": 0,
+                    "eido_ret": 0,
+                    "sp_ret": 0
+                }
+            }
+            save_picks_history(history)
+            return []
+    except Exception as e:
+        print(f"[MarketCompass Check Error] {e}")
+
     if not force_refresh and today_str in history and history[today_str].get("picks"):
         picks = history[today_str]["picks"]
         for p in picks:
@@ -140,6 +170,29 @@ def get_daily_top3_picks(force_refresh: bool = False) -> List[Dict[str, Any]]:
 
     candidates = []
     seen_tickers = set()
+
+    # 0. Prioritas Utama: RWY Alpha Scanner (Stage 2 Uptrend + Relative Strength vs IHSG + Whale Footprint)
+    try:
+        from rwy_alpha_scanner import run_rwy_alpha_scanner
+        scan_res = run_rwy_alpha_scanner()
+        for rc in scan_res.get("candidates", []):
+            sym = rc["ticker"]
+            if sym not in seen_tickers:
+                seen_tickers.add(sym)
+                close_p = rc["close"]
+                sup_p = int(close_p * 0.955)
+                tgt_p = rc["tp1"]
+                candidates.append({
+                    "ticker": sym,
+                    "last_price": close_p,
+                    "support": sup_p,
+                    "target": tgt_p,
+                    "score": rc["score"] + 35,
+                    "source": rc["category"],
+                    "reason": f"RWY V2 Engine: {rc['tag']} (RVOL {rc['rvol']}x, CMF {rc['cmf']:+.2f}, RS vs IHSG +{rc['rs_score']}%)"
+                })
+    except Exception as e:
+        print(f"[DailyPicks RWY Scanner Error] {e}")
 
     # 1. Cek Radar ARA Hunter
     try:
@@ -239,21 +292,17 @@ def get_daily_top3_picks(force_refresh: bool = False) -> List[Dict[str, Any]]:
 
     for p in top3:
         p["last_price"] = int(p["last_price"])
-        p["support"] = int(p["support"])
-        p["target"] = int(p["target"])
+        p["support"] = int(p.get("support", int(p["last_price"] * 0.96)))
+        p["target"] = int(p.get("target", int(p["last_price"] * 1.07)))
         c = p["last_price"]
-        sup = p["support"]
-        tgt = p["target"]
-        if sup < c and (c - sup) / c <= 0.06:
-            sl = int(sup * 0.985)
-        else:
-            sl = int(c * 0.952)
+        # Strict Stop Loss 5.5% (Disiplin Mandat Robot RWY V2)
+        sl = int(round(c * 0.945))
         p["stop_loss"] = sl
-        risk_pct = round(((c - sl) / c) * 100, 1) if c > 0 else 4.8
-        gain_pct = round(((tgt - c) / c) * 100, 1) if c > 0 else 7.5
-        p["risk_pct"] = risk_pct if risk_pct > 0 else 4.8
+        p["risk_pct"] = 5.5
+        tgt = p["target"]
+        gain_pct = round(((tgt - c) / c) * 100, 1) if c > 0 else 7.0
         p["gain_potential_pct"] = gain_pct
-        p["risk_reward"] = round(gain_pct / risk_pct, 1) if risk_pct > 0 else 2.0
+        p["risk_reward"] = round(gain_pct / 5.5, 1)
 
     history[today_str] = {
         "date": today_str,
@@ -670,13 +719,24 @@ def format_daily_stock_pick_caption(picks: List[Dict[str, Any]], date_str: str =
 
     lines.append("━━━━━━━━━━━━━━━━━━━")
     lines.append(
-        "⚠️ <b>PENGINGAT MANAJEMEN RISIKO &amp; DISCLAIMER:</b>\n"
-        "• <b>BUKAN FINANCIAL ADVICE (DYOR):</b> Seluruh analisis adalah hasil komputasi algoritma &amp; data kuantitatif, bukan ajakan jual/beli.\n"
-        "• <b>DISIPLIN STOP LOSS:</b> Selalu pasang Stop Loss ketat saat entry. Modal Anda adalah nyawa trading Anda!\n"
-        "• <b>HITUNG RISK : REWARD:</b> Pastikan rasio R:R minimal 1 : 1.5. Batasi risiko maksimal 1–2% dari modal per transaksi."
+        "🧗‍♂️ <b>ATURAN TANGGA PROTEKSI CUAN (ROBOT RWY V2):</b>\n"
+        "1. <b>Level 1 (+3.5% Profit):</b> Geser SL ke modal + fee (<b>+0.8% net</b>). Saham hijau <b>DILARANG</b> berbalik merah!\n"
+        "2. <b>Level 2 (+7.5% Profit):</b> Kunci SL di <b>+4.0%</b> untuk mengamankan cuan.\n"
+        "3. <b>Level 3 (+15.0% Profit):</b> Kunci SL di <b>+10.0%</b>.\n"
+        "4. <b>Uncapped Runner:</b> Jika saham ditarik kencang (+28% s/d +50%+), ikuti dengan trailing stop lebar agar multi-bagger tertangkap utuh!"
     )
     lines.append("━━━━━━━━━━━━━━━━━━━")
-    lines.append("💡 <i>Ketik <code>/scan KODE</code> (misal: <code>/scan {0}</code>) untuk kalkulasi money management &amp; chart.</i>".format(picks[0]['ticker'] if picks else 'BBCA'))
+    lines.append(
+        "💡 <b>PERBEDAAN FITUR RESMI:</b>\n"
+        "• <code>/pick</code> : 3 Saham Portofolio Resmi Terkurasi (Trading Plan Komplit).\n"
+        "• <code>/scan</code> : Radar Pemindai Multi-Saham Seluruh Pasar Real-Time."
+    )
+    lines.append("━━━━━━━━━━━━━━━━━━━")
+    lines.append(
+        "⚠️ <b>DISCLAIMER &amp; MANAJEMEN RISIKO:</b>\n"
+        "• <b>DYOR:</b> Analisis kuantitatif algoritma, bukan ajakan jual/beli.\n"
+        "• <b>DISIPLIN SL:</b> Selalu pasang Stop Loss ketat 5.5% saat entry!"
+    )
     return "\n".join(lines)
 
 

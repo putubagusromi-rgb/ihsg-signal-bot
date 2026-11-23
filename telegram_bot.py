@@ -100,16 +100,16 @@ def make_main_inline_menu() -> dict:
                 {"text": "🏆 Daily Result Hari Ini", "callback_data": "menu:dailyresult"}
             ],
             [
-                {"text": "🔮 Prediksi IHSG Besok", "callback_data": "menu:prediksi"},
-                {"text": "⚡ Radar ARA Hunter", "callback_data": "menu:arahunter"}
+                {"text": "📡 RWY Alpha Scanner", "callback_data": "menu:rwyscan"},
+                {"text": "🔮 Prediksi IHSG Besok", "callback_data": "menu:prediksi"}
             ],
             [
-                {"text": "🌇 Radar BSJP (Beli Sore)", "callback_data": "menu:bsjp"},
-                {"text": "⚡ Scalp Momentum Pagi", "callback_data": "menu:scalp"}
+                {"text": "⚡ Radar ARA Hunter", "callback_data": "menu:arahunter"},
+                {"text": "🌇 Radar BSJP (Beli Sore)", "callback_data": "menu:bsjp"}
             ],
             [
-                {"text": "💼 Pantau Portofolio", "callback_data": "menu:watchlist"},
-                {"text": "🚀 Radar Multi-Bagger", "callback_data": "menu:multibagger"}
+                {"text": "⚡ Scalp Momentum Pagi", "callback_data": "menu:scalp"},
+                {"text": "💼 Pantau Portofolio", "callback_data": "menu:watchlist"}
             ],
             [
                 {"text": "🏆 Tier List Akumulasi", "callback_data": "menu:tierlist"},
@@ -181,7 +181,8 @@ def setup_bot_commands():
         {"command": "tierlist", "description": "🏆 Tier List Akumulasi Whale (S/A/B)"},
         {"command": "hedge", "description": "🏛️ Wyckoff Spring & Hedge Fund Picks"},
         {"command": "whalelist", "description": "🐋 Top 5 Saham Diakumulasi Whale"},
-        {"command": "scan", "description": "🎯 Deep Dive 1 Saham (cth: /scan BBCA)"},
+        {"command": "scan", "description": "📡 RWY Alpha Scanner Pasar / Analisis Saham"},
+        {"command": "rwy", "description": "📡 Scanner Saham Akumulasi & Breakout Masif"},
         {"command": "chart", "description": "📈 Grafik Candlestick & MA (cth: /chart BBRI)"},
         {"command": "regime", "description": "🌐 Status Kesehatan Pasar & Proteksi Crash"},
         {"command": "crashshield", "description": "🛡️ Cek Status Sensor Bahaya & Crash IHSG"},
@@ -959,6 +960,8 @@ def handle_telegram_callback(callback_query: dict):
             handle_telegram_command("/pick", chat_id)
         elif target == "dailyresult":
             handle_telegram_command("/result", chat_id)
+        elif target == "rwyscan":
+            handle_telegram_command("/scan", chat_id)
         elif target == "prediksi":
             send_telegram_message("🔮 <i>Menganalisis Wall Street, kurs Rupiah & teknikal IHSG...</i>", chat_id)
             pred = predict_daily_ihsg_direction()
@@ -1039,6 +1042,7 @@ def _handle_telegram_command_impl(command_text: str, chat_id: str):
 
     BTN_MAP = {
         "📋 3 Saham Pilihan": "/pick",
+        "📡 RWY Scanner": "/scan",
         "🏆 Daily Result": "/result",
         "🔮 Prediksi Arah IHSG": "/prediksi",
         "🚀 Radar Multi-Bagger": "/multibagger",
@@ -1060,6 +1064,8 @@ def _handle_telegram_command_impl(command_text: str, chat_id: str):
         raw_lower = raw_text.lower()
         if raw_text in BTN_MAP:
             command_text = BTN_MAP[raw_text]
+        elif raw_lower in ["scan", "scanner", "rwy", "alphascan", "rwy scanner"]:
+            command_text = "/scan"
         elif raw_lower in ["pick", "3 saham", "stock pick", "rekomendasi", "pilihan"]:
             command_text = "/pick"
         elif raw_lower in ["result", "daily result", "hasil", "evaluasi", "hasil hari ini"]:
@@ -1348,11 +1354,12 @@ def _handle_telegram_command_impl(command_text: str, chat_id: str):
         else:
             send_telegram_message(f"❌ Gagal memuat grafik #{esc(ticker)}.", chat_id)
 
-    elif cmd in ["/scan"]:
+    elif cmd in ["/scan", "/rwy", "/alphascan", "/scanner"]:
         if len(parts) < 2:
-            send_telegram_message("⏳ <i>Memindai 45 saham LQ45 untuk mencari momentum Whale...</i>", chat_id)
-            stocks = scan_whale_watchlist(LQ45_WATCHLIST)
-            send_long_telegram_message(format_whale_scan_message(stocks, title_tag="LQ45"), chat_id)
+            send_telegram_message("📡 <i>Memindai seluruh semesta saham IDX dengan formula RWY V2 (Stage 2 Uptrend + Relative Strength vs IHSG + Whale Footprint)...</i>", chat_id)
+            from rwy_alpha_scanner import run_rwy_alpha_scanner, format_rwy_scanner_message
+            scan_res = run_rwy_alpha_scanner()
+            send_long_telegram_message(format_rwy_scanner_message(scan_res), chat_id)
         else:
             ticker = parts[1].upper()
             send_telegram_message(f"⏳ <i>Menganalisis mendalam #{esc(ticker)}...</i>", chat_id)
