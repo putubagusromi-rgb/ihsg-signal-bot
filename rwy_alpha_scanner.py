@@ -202,6 +202,12 @@ def run_rwy_alpha_scanner(universe: List[str] = None, min_turnover: float = 3_00
             score = 75 + (pct_chg * 1.2) + (rvol * 3.5) + (cmf20 * 30.0) + (rs_score * 50.0)
             tag = "💎 ALPHA LEADER"
 
+        # Kategori 4: Stage-2 Whale Base Accumulation (Potensi Calon Bagger)
+        elif c_today >= sma20 and sma20 >= sma50 and rs_score >= 0.02 and cmf20 >= 0.05:
+            category = "STAGE-2 WHALE ACCUMULATION"
+            score = 70 + (pct_chg * 1.0) + (rvol * 3.0) + (cmf20 * 25.0) + (rs_score * 40.0)
+            tag = "🚀 CALON BAGGER"
+
         if category:
             candidates.append({
                 "ticker": ticker,

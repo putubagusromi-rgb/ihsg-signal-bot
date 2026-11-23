@@ -189,7 +189,12 @@ def get_daily_top3_picks(force_refresh: bool = False) -> List[Dict[str, Any]]:
                     "target": tgt_p,
                     "score": rc["score"] + 35,
                     "source": rc["category"],
-                    "reason": f"RWY V2 Engine: {rc['tag']} (RVOL {rc['rvol']}x, CMF {rc['cmf']:+.2f}, RS vs IHSG +{rc['rs_score']}%)"
+                    "is_rwy_alpha": True,
+                    "rwy_tag": rc.get("tag", "CALON BAGGER"),
+                    "rvol": rc.get("rvol", 1.8),
+                    "cmf": rc.get("cmf", 0.15),
+                    "rs_score": rc.get("rs_score", 10.0),
+                    "reason": f"RWY Alpha Scanner: {rc['tag']} (RVOL {rc['rvol']}x, CMF {rc['cmf']:+.2f}, RS vs IHSG +{rc['rs_score']}%)"
                 })
     except Exception as e:
         print(f"[DailyPicks RWY Scanner Error] {e}")
@@ -446,6 +451,12 @@ def generate_stock_pick_image(picks: List[Dict[str, Any]], date_str: str = None)
     for idx, (p, y) in enumerate(zip(picks[:3], y_positions)):
         # Left: Ticker, Entry, Risk:Reward
         ax.text(0.18, y + 0.038, f"#{p['ticker']}", fontsize=25, fontweight="bold", color="#0F172A", va="center", zorder=3)
+        if p.get("is_rwy_alpha"):
+            pill = patches.FancyBboxPatch((0.35, y + 0.024), 0.22, 0.028,
+                                          boxstyle="round,pad=0.005,rounding_size=0.01",
+                                          facecolor="#FEF3C7", edgecolor="#D97706", linewidth=1.2, zorder=2)
+            ax.add_patch(pill)
+            ax.text(0.46, y + 0.038, "[*] CALON BAGGER", fontsize=7.5, fontweight="bold", color="#B45309", ha="center", va="center", zorder=3)
         ax.text(0.18, y - 0.002, f"Entry: Rp {p['last_price']:,}", fontsize=12, fontweight="bold", color="#475569", va="center", zorder=3)
         rr_val = p.get('risk_reward', 2.0)
         ax.text(0.18, y - 0.040, f"R : R = 1 : {rr_val}", fontsize=12, fontweight="bold", color="#4F46E5", va="center", zorder=3)
@@ -703,13 +714,30 @@ def format_daily_stock_pick_caption(picks: List[Dict[str, Any]], date_str: str =
             ""
         ]
 
+    has_alpha_bagger = any(p.get("is_rwy_alpha") for p in picks[:3])
+    if has_alpha_bagger:
+        lines.append(
+            "🔥 <b>[TEMUAN EMAS RWY ALPHA SCANNER TERDETEKSI!]</b> 💎\n"
+            "✨ <i>RWY Alpha Scanner menemukan kandidat saham berpotensi <b>MULTI-BAGGER RUNNER</b> hari ini! "
+            "Saham bertanda [🚀 CALON BAGGER] di bawah ini menunjukkan lonjakan akumulasi bandar masif dan tren penguatan agresif!</i>\n"
+        )
+
     for idx, p in enumerate(picks[:3], 1):
         gain_str = f"+{p.get('gain_potential_pct', 0)}%"
         risk_str = f"-{p.get('risk_pct', 4.8)}%"
         rr_str = f"1 : {p.get('risk_reward', 2.0)}"
         sl_val = p.get('stop_loss', int(p['last_price'] * 0.95))
+
+        if p.get("is_rwy_alpha"):
+            tag_text = p.get('rwy_tag', '🚀 CALON BAGGER')
+            rwy_badge = f" [{tag_text}]"
+            banner_line = "💎 <b>[TEMUAN EMAS RWY ALPHA SCANNER: POTENSI CALON BAGGER!]</b> 🚀\n"
+        else:
+            rwy_badge = ""
+            banner_line = ""
+
         lines.append(
-            f"<b>{idx}. #{p['ticker']}</b> — <code>Entry: Rp {p['last_price']:,}</code>\n"
+            f"{banner_line}<b>{idx}. #{p['ticker']}</b> — <code>Entry: Rp {p['last_price']:,}</code>{rwy_badge}\n"
             f"   • 🎯 <b>Target TP   :</b> <code>Rp {p['target']:,}</code> (<b>{gain_str}</b>)\n"
             f"   • ⛔ <b>Stop Loss   :</b> <code>Rp {sl_val:,}</code> (<b>{risk_str}</b>) <i>[Wajib Pasang!]</i>\n"
             f"   • ⚖️ <b>Risk:Reward :</b> <b>{rr_str}</b>\n"
