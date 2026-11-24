@@ -1156,11 +1156,11 @@ def _handle_telegram_command_impl(command_text: str, chat_id: str):
         return
 
     elif cmd in ["/pick", "/stockpick", "/rekomendasi", "/pilihan"]:
-        send_telegram_message("⏳ <i>Menghubungkan ke terminal pasar dan memeriksa IHSG Crash Shield...</i>", chat_id)
+        send_telegram_message("⏳ <i>Menghubungkan ke terminal pasar dan memindai Smart Money Flow...</i>", chat_id)
         picks = get_daily_top3_picks()
         pick_img = generate_stock_pick_image(picks)
         pick_cap = format_daily_stock_pick_caption(picks)
-        photo_caption = "📋 <b>DAILY STOCK PICK HARI INI</b> (3 Saham Pilihan)" if picks else "🚨 <b>PERINGATAN IHSG CRASH SHIELD</b> (Pembelian Dibekukan)"
+        photo_caption = "📋 <b>DAILY STOCK PICK HARI INI</b> (3 Saham Pilihan)" if picks else "🚨 <b>PERINGATAN RISIKO PASAR</b>"
         if pick_img:
             send_telegram_photo(pick_img, caption=photo_caption, chat_id=chat_id)
         send_long_telegram_message(pick_cap, chat_id=chat_id)

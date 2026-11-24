@@ -102,21 +102,22 @@ def get_daily_top3_picks(force_refresh: bool = False) -> List[Dict[str, Any]]:
     today_str = _get_today_str()
     history = load_picks_history()
 
-    # 1. Cek IHSG Crash Shield & Early Warning Circuit Breaker
+    market_warning = None
+
+    # 1. Cek IHSG Crash Shield & Early Warning Circuit Breaker (Hanya Warning, Non-Blocking)
     try:
         from ihsg_crash_shield import detect_ihsg_crash_shield
         shield = detect_ihsg_crash_shield()
         if shield.get("active"):
-            print(f"[DailyStockPicks] IHSG CRASH SHIELD AKTIF: {shield.get('reasons')}")
-            # Simpan status defense ke history
-            history[today_str] = {
-                "date": today_str,
-                "created_at": datetime.now().isoformat(),
-                "picks": [],
-                "crash_shield": shield
+            print(f"[DailyStockPicks] IHSG CRASH SHIELD WARNING: {shield.get('reasons')}")
+            market_warning = {
+                "active": True,
+                "type": "CRASH_SHIELD",
+                "severity": shield.get("severity", "RISK-OFF"),
+                "reasons": shield.get("reasons", ["Koreksi pasar sistemik terdeteksi"]),
+                "advice": "Pasar berisiko tinggi. Utamakan strategi Buy The Low di harga bawah & disiplin Stop Loss 5.5%!",
+                "shield_data": shield
             }
-            save_picks_history(history)
-            return []
     except Exception as e:
         print(f"[CrashShield Check Error] {e}")
 
@@ -124,29 +125,21 @@ def get_daily_top3_picks(force_refresh: bool = False) -> List[Dict[str, Any]]:
     try:
         from rwy_alpha_scanner import get_market_compass
         compass = get_market_compass()
-        if compass.get("status") == "BEARISH":
-            print(f"[DailyStockPicks] PASAR DOWNTREND: {compass.get('advice')}")
-            history[today_str] = {
-                "date": today_str,
-                "created_at": datetime.now().isoformat(),
-                "picks": [],
-                "crash_shield": {
-                    "active": True,
-                    "severity": "BEARISH DOWNTREND",
-                    "reasons": [
-                        "IHSG terkonfirmasi Downtrend (di bawah level SMA20 & SMA50)",
-                        f"Tekanan jual sistemik: {compass.get('advice', '')}"
-                    ],
-                    "ihsg_price": compass.get("close", 0),
-                    "ihsg_chg1d": compass.get("chg_1d", 0),
-                    "ihsg_chg5d": compass.get("chg_5d", 0),
-                    "curr_idr": 0,
-                    "eido_ret": 0,
-                    "sp_ret": 0
-                }
+        if compass.get("status") == "BEARISH" and not market_warning:
+            print(f"[DailyStockPicks] PASAR DOWNTREND WARNING: {compass.get('advice')}")
+            market_warning = {
+                "active": True,
+                "type": "BEARISH_TREND",
+                "severity": "BEARISH DOWNTREND",
+                "reasons": [
+                    "IHSG terkonfirmasi Downtrend (di bawah level SMA20 & SMA50)",
+                    f"Tekanan jual pasar: {compass.get('advice', '')}"
+                ],
+                "advice": compass.get("advice", "Utamakan Buy The Low & disiplin Stop Loss 5.5%!"),
+                "ihsg_price": compass.get("close", 0),
+                "ihsg_chg1d": compass.get("chg_1d", 0),
+                "ihsg_chg5d": compass.get("chg_5d", 0)
             }
-            save_picks_history(history)
-            return []
     except Exception as e:
         print(f"[MarketCompass Check Error] {e}")
 
@@ -171,7 +164,7 @@ def get_daily_top3_picks(force_refresh: bool = False) -> List[Dict[str, Any]]:
     candidates = []
     seen_tickers = set()
 
-    # 0. Prioritas Utama: RWY Alpha Scanner (Stage 2 Uptrend + Relative Strength vs IHSG + Whale Footprint)
+    # 0. Prioritas Utama: RWY Alpha Scanner (Buy The Low, Broker Flow BSJP, Wyckoff Spring Rebound)
     try:
         from rwy_alpha_scanner import run_rwy_alpha_scanner
         scan_res = run_rwy_alpha_scanner()
@@ -182,19 +175,21 @@ def get_daily_top3_picks(force_refresh: bool = False) -> List[Dict[str, Any]]:
                 close_p = rc["close"]
                 sup_p = int(close_p * 0.955)
                 tgt_p = rc["tp1"]
+                # Berikan pembobotan lebih tinggi untuk BUY THE LOW saat kondisi pasar berisiko
+                bonus_score = 45 if ("BUY THE LOW" in rc.get("category", "") or "SPRING" in rc.get("category", "")) else 35
                 candidates.append({
                     "ticker": sym,
                     "last_price": close_p,
                     "support": sup_p,
                     "target": tgt_p,
-                    "score": rc["score"] + 35,
+                    "score": rc["score"] + bonus_score,
                     "source": rc["category"],
                     "is_rwy_alpha": True,
                     "rwy_tag": rc.get("tag", "CALON BAGGER"),
                     "rvol": rc.get("rvol", 1.8),
                     "cmf": rc.get("cmf", 0.15),
-                    "rs_score": rc.get("rs_score", 10.0),
-                    "reason": f"RWY Alpha Scanner: {rc['tag']} (RVOL {rc['rvol']}x, CMF {rc['cmf']:+.2f}, RS vs IHSG +{rc['rs_score']}%)"
+                    "price_pos_pct": rc.get("price_pos_pct", 40.0),
+                    "reason": f"RWY Alpha Scanner: {rc['tag']} ({rc['narrative']})"
                 })
     except Exception as e:
         print(f"[DailyPicks RWY Scanner Error] {e}")
@@ -312,7 +307,8 @@ def get_daily_top3_picks(force_refresh: bool = False) -> List[Dict[str, Any]]:
     history[today_str] = {
         "date": today_str,
         "created_at": datetime.now().isoformat(),
-        "picks": top3
+        "picks": top3,
+        "market_warning": market_warning
     }
     save_picks_history(history)
     return top3
@@ -452,18 +448,29 @@ def generate_stock_pick_image(picks: List[Dict[str, Any]], date_str: str = None)
         # Left: Ticker, Entry, Risk:Reward
         ax.text(0.18, y + 0.038, f"#{p['ticker']}", fontsize=25, fontweight="bold", color="#0F172A", va="center", zorder=3)
         if p.get("is_rwy_alpha"):
-            pill = patches.FancyBboxPatch((0.35, y + 0.024), 0.22, 0.028,
+            raw_tag = p.get('rwy_tag', 'CALON BAGGER')
+            if "BUY THE LOW" in raw_tag:
+                badge_lbl = "[*] BUY THE LOW"
+            elif "BROKER FLOW" in raw_tag:
+                badge_lbl = "[*] BROKER FLOW"
+            elif "SPRING" in raw_tag:
+                badge_lbl = "[*] SPRING REBOUND"
+            elif "BREAKOUT" in raw_tag:
+                badge_lbl = "[*] BREAKOUT"
+            else:
+                badge_lbl = "[*] CALON BAGGER"
+            pill = patches.FancyBboxPatch((0.34, y + 0.024), 0.23, 0.028,
                                           boxstyle="round,pad=0.005,rounding_size=0.01",
                                           facecolor="#FEF3C7", edgecolor="#D97706", linewidth=1.2, zorder=2)
             ax.add_patch(pill)
-            ax.text(0.46, y + 0.038, "[*] CALON BAGGER", fontsize=7.5, fontweight="bold", color="#B45309", ha="center", va="center", zorder=3)
+            ax.text(0.455, y + 0.038, badge_lbl, fontsize=7.5, fontweight="bold", color="#B45309", ha="center", va="center", zorder=3)
         ax.text(0.18, y - 0.002, f"Entry: Rp {p['last_price']:,}", fontsize=12, fontweight="bold", color="#475569", va="center", zorder=3)
         rr_val = p.get('risk_reward', 2.0)
         ax.text(0.18, y - 0.040, f"R : R = 1 : {rr_val}", fontsize=12, fontweight="bold", color="#4F46E5", va="center", zorder=3)
 
         # Right: Target TP, Stop Loss, Support
         gain_str = f" (+{p.get('gain_potential_pct', 7.0)}%)"
-        risk_str = f" (-{p.get('risk_pct', 4.8)}%)"
+        risk_str = f" (-{p.get('risk_pct', 5.5)}%)"
         sl_val = p.get('stop_loss', int(p['last_price'] * 0.95))
 
         ax.text(0.48, y + 0.038, "Target TP  :", fontsize=13, fontweight="bold", color="#1E293B", va="center", zorder=3)
@@ -686,52 +693,102 @@ def generate_daily_result_image(eval_data: Dict[str, Any]) -> bytes:
     return buf.getvalue()
 
 
-def format_daily_stock_pick_caption(picks: List[Dict[str, Any]], date_str: str = None) -> str:
+def format_daily_stock_pick_caption(picks: List[Dict[str, Any]], date_str: str = None, market_warning: Dict[str, Any] = None) -> str:
     if not picks:
         from ihsg_crash_shield import detect_ihsg_crash_shield, format_crash_shield_warning
         shield = detect_ihsg_crash_shield()
         return format_crash_shield_warning(shield)
 
+    # Ambil market_warning dari cache jika tidak dipass
+    if market_warning is None:
+        try:
+            today_str = _get_today_str()
+            history = load_picks_history()
+            market_warning = history.get(today_str, {}).get("market_warning")
+            if not market_warning:
+                from ihsg_crash_shield import detect_ihsg_crash_shield
+                sh = detect_ihsg_crash_shield()
+                if sh.get("active"):
+                    market_warning = {
+                        "active": True,
+                        "type": "CRASH_SHIELD",
+                        "severity": sh.get("severity", "RISK-OFF"),
+                        "reasons": sh.get("reasons", ["Koreksi pasar tajam"]),
+                        "advice": "Utamakan Buy The Low & disiplin Stop Loss 5.5%!"
+                    }
+                else:
+                    from rwy_alpha_scanner import get_market_compass
+                    cmp = get_market_compass()
+                    if cmp.get("status") == "BEARISH":
+                        market_warning = {
+                            "active": True,
+                            "type": "BEARISH_TREND",
+                            "severity": "BEARISH DOWNTREND",
+                            "reasons": [
+                                "IHSG di bawah level SMA20 & SMA50",
+                                cmp.get("advice", "Tekanan jual pasar")
+                            ],
+                            "advice": cmp.get("advice", "Utamakan Buy The Low & pasang SL 5.5%!")
+                        }
+        except Exception:
+            market_warning = None
+
     t_info = get_target_trading_day()
     if not date_str:
         date_str = t_info["formatted_id"]
 
+    lines = []
+
+    # 1. WARNING BANNER JIKA ADA RISIKO PASAR (NON-BLOCKING)
+    if market_warning and market_warning.get("active"):
+        reasons_list = market_warning.get("reasons", [])
+        reasons_str = " | ".join(reasons_list[:2]) if reasons_list else "Tekanan pasar makro"
+        lines.extend([
+            "⚠️ <b>PERINGATAN RISIKO PASAR (BEARISH / VOLATILITAS TINGGI)</b> ⚠️",
+            f"🛡️ <b>Status Makro:</b> <code>{market_warning.get('severity', 'RISK-OFF')}</code>",
+            f"📉 <b>Indikasi:</b> <i>{reasons_str}</i>",
+            "🎯 <b>STRATEGI ROBOT: BUY THE LOW (SMART MONEY ABSORPTION)</b>",
+            "✨ <i>Risiko pasar di-warn saja (sinyal belanja tetap jalan!). Robot memprioritaskan saham-saham di harga bawah (area diskon/support) yang terdeteksi sedang diserap dan diakumulasi oleh Bandar / Smart Money!</i>",
+            "━━━━━━━━━━━━━━━━━━━",
+            ""
+        ])
+
     if t_info["is_prep"]:
-        lines = [
+        lines.extend([
             f"📋 <b>DAILY STOCK PICK — PERSIAPAN BUKA BURSA HARI {t_info['target_day_name'].upper()}</b> 🎯",
             f"📅 <b>Target Trading:</b> <code>{t_info['formatted_id']} (Buka Sesi 1 09:00 WIB)</code>",
             f"🏖️ <i>Catatan: Bursa saat ini sedang libur akhir pekan. 3 saham di bawah ini adalah rekomendasi watchlist terkuat untuk eksekusi saat bursa dibuka kembali hari {t_info['target_day_name']} pagi!</i>",
             "━━━━━━━━━━━━━━━━━━━",
             f"<b>Rekomendasi 3 Saham Pilihan untuk Hari {t_info['target_day_name']}:</b>",
             ""
-        ]
+        ])
     else:
-        lines = [
+        lines.extend([
             "📋 <b>DAILY STOCK PICK HARI INI (08:30 WIB)</b> 🎯",
             f"📅 <i>Tanggal: {date_str} (30 Menit Menuju Buka Sesi 1)</i>",
             "━━━━━━━━━━━━━━━━━━━",
             "Berikut 3 saham terbaik hasil screening algoritma AI & Whale Accumulation:",
             ""
-        ]
+        ])
 
     has_alpha_bagger = any(p.get("is_rwy_alpha") for p in picks[:3])
     if has_alpha_bagger:
         lines.append(
             "🔥 <b>[TEMUAN EMAS RWY ALPHA SCANNER TERDETEKSI!]</b> 💎\n"
-            "✨ <i>RWY Alpha Scanner menemukan kandidat saham berpotensi <b>MULTI-BAGGER RUNNER</b> hari ini! "
-            "Saham bertanda [🚀 CALON BAGGER] di bawah ini menunjukkan lonjakan akumulasi bandar masif dan tren penguatan agresif!</i>\n"
+            "✨ <i>RWY Alpha Scanner menemukan kandidat saham berpotensi <b>BUY THE LOW & MULTI-BAGGER RUNNER</b> hari ini! "
+            "Saham di bawah ini menunjukkan lonjakan akumulasi bandar masif dan penyerapan volume di area diskon/support!</i>\n"
         )
 
     for idx, p in enumerate(picks[:3], 1):
         gain_str = f"+{p.get('gain_potential_pct', 0)}%"
-        risk_str = f"-{p.get('risk_pct', 4.8)}%"
+        risk_str = f"-{p.get('risk_pct', 5.5)}%"
         rr_str = f"1 : {p.get('risk_reward', 2.0)}"
-        sl_val = p.get('stop_loss', int(p['last_price'] * 0.95))
+        sl_val = p.get('stop_loss', int(p['last_price'] * 0.945))
 
         if p.get("is_rwy_alpha"):
             tag_text = p.get('rwy_tag', '🚀 CALON BAGGER')
             rwy_badge = f" [{tag_text}]"
-            banner_line = "💎 <b>[TEMUAN EMAS RWY ALPHA SCANNER: POTENSI CALON BAGGER!]</b> 🚀\n"
+            banner_line = f"💎 <b>[TEMUAN EMAS RWY ALPHA SCANNER: {tag_text}!]</b> 🚀\n"
         else:
             rwy_badge = ""
             banner_line = ""
